@@ -133,8 +133,7 @@ canvas {
   <div class="touch-group right-group">
     <div class="ability-row" id="ability-buttons" style="display:none;flex-direction:row;gap:6px;margin-bottom:6px">
       <button class="touch-btn ability-btn" id="btn-ability-1" style="width:48px;height:48px;font-size:18px;border-color:rgba(255,152,0,0.6);background:rgba(255,152,0,0.12)">👊</button>
-      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⬆️</button>
-      <button class="touch-btn ability-btn" id="btn-ability-3" style="width:48px;height:48px;font-size:18px;border-color:rgba(229,57,53,0.6);background:rgba(229,57,53,0.12)">🔴</button>
+      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(229,57,53,0.6);background:rgba(229,57,53,0.12)">🔴</button>
     </div>
     <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
     <button class="touch-btn hit-btn" id="btn-hit">HIT</button>
@@ -225,7 +224,6 @@ setupTouchButton('btn-jump', 'ArrowUp');
 setupTouchButton('btn-hit', 'Space');
 setupTouchButton('btn-ability-1', 'Digit1');
 setupTouchButton('btn-ability-2', 'Digit2');
-setupTouchButton('btn-ability-3', 'Digit3');
 
 // Touch menu helper — creates tappable buttons for menu screens
 function updateTouchMenu() {
@@ -274,9 +272,9 @@ function updateTouchUI() {
     if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
       const human = players.find(p => p.playerNum === 1 && p.alive);
       if (human) {
-        const ids = ['ironfist', 'doublejump', 'multiball'];
-        const btnIds = ['btn-ability-1', 'btn-ability-2', 'btn-ability-3'];
-        for (let i = 0; i < 3; i++) {
+        const ids = ['ironfist', 'multiball'];
+        const btnIds = ['btn-ability-1', 'btn-ability-2'];
+        for (let i = 0; i < 2; i++) {
           const btn = document.getElementById(btnIds[i]);
           if (btn) btn.style.opacity = human.abilityAvailable[ids[i]] ? '1' : '0.3';
         }
@@ -402,8 +400,7 @@ let screenShake = 0;
 // Ability definitions
 const ABILITIES = [
   { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '3x hit power' },
-  { id: 'doublejump', label: 'Dbl Jump', icon: '⬆️', color: '#66bb6a', key: '2', desc: 'Air jump' },
-  { id: 'multiball', label: 'Multiball', icon: '🔴', color: '#e53935', key: '3', desc: 'Extra ball' },
+  { id: 'multiball', label: 'Multiball', icon: '🔴', color: '#e53935', key: '2', desc: 'Extra balls' },
 ];
 
 // --- Colors ---
@@ -448,9 +445,8 @@ function createPlayer(index, x, playerNum) {
     hitAnim: 0,
     // Abilities (Impossible mode)
     hasIronFist: false,
-    hasDoubleJump: false,
     // Track which abilities are still available (one-time use)
-    abilityAvailable: { ironfist: true, doublejump: true, multiball: true },
+    abilityAvailable: { ironfist: true, multiball: true },
   };
 }
 
@@ -594,12 +590,7 @@ function updateHuman(p) {
       p.abilityAvailable.ironfist = false;
       spawnAbilityParticles(p.x, p.y, '#ff9800');
     }
-    if (justPressed['Digit2'] && p.abilityAvailable.doublejump && !p.hasDoubleJump) {
-      p.hasDoubleJump = true;
-      p.abilityAvailable.doublejump = false;
-      spawnAbilityParticles(p.x, p.y, '#66bb6a');
-    }
-    if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
+    if (justPressed['Digit2'] && p.abilityAvailable.multiball) {
       p.abilityAvailable.multiball = false;
       // Spawn 3 extra balls in a fan spread — already dangerous
       for (let bi = 0; bi < 3; bi++) {
@@ -624,10 +615,7 @@ function updateHuman(p) {
     // Public mode P1: WASD + Space only
     if (keys['KeyA']) { p.x -= speed; p.facing = -1; }
     if (keys['KeyD']) { p.x += speed; p.facing = 1; }
-    if (justPressed['KeyW']) {
-      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
-      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
-    }
+    if (justPressed['KeyW'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -635,10 +623,7 @@ function updateHuman(p) {
     // Public mode P2: Arrows + Enter
     if (keys['ArrowLeft']) { p.x -= speed; p.facing = -1; }
     if (keys['ArrowRight']) { p.x += speed; p.facing = 1; }
-    if (justPressed['ArrowUp']) {
-      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
-      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
-    }
+    if (justPressed['ArrowUp'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Enter'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -646,10 +631,7 @@ function updateHuman(p) {
     // Solo mode: both WASD and Arrows work
     if (keys['ArrowLeft'] || keys['KeyA']) { p.x -= speed; p.facing = -1; }
     if (keys['ArrowRight'] || keys['KeyD']) { p.x += speed; p.facing = 1; }
-    if (justPressed['ArrowUp'] || justPressed['KeyW']) {
-      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
-      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
-    }
+    if ((justPressed['ArrowUp'] || justPressed['KeyW']) && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -998,8 +980,7 @@ function drawAbilityHUD() {
     const y = hudY;
 
     const available = human.abilityAvailable[ab.id];
-    const active = (ab.id === 'ironfist' && human.hasIronFist) ||
-                   (ab.id === 'doublejump' && human.hasDoubleJump);
+    const active = (ab.id === 'ironfist' && human.hasIronFist);
     const used = !available && !active;
 
     // Box background
@@ -1212,17 +1193,6 @@ function drawPlayer(p) {
     ctx.fill();
   }
 
-  // Double Jump glow under feet
-  if (p.hasDoubleJump) {
-    const djGlow = ctx.createRadialGradient(p.x, footY, 2, p.x, footY, 14);
-    djGlow.addColorStop(0, 'rgba(102, 187, 106, 0.5)');
-    djGlow.addColorStop(1, 'rgba(102, 187, 106, 0)');
-    ctx.beginPath();
-    ctx.arc(p.x, footY, 14, 0, Math.PI * 2);
-    ctx.fillStyle = djGlow;
-    ctx.fill();
-  }
-
   // Name tag
   ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center';
@@ -1341,7 +1311,7 @@ function drawHUD() {
     if (gameMode === 'public') {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
     } else if (currentDifficulty === DIFFICULTIES.impossible) {
-      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Dbl Jump  3: Multiball', W / 2, H - 10);
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Multiball', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
