@@ -601,15 +601,16 @@ function updateHuman(p) {
     }
     if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
       p.abilityAvailable.multiball = false;
-      // Spawn 5 extra balls in a fan spread — already dangerous
-      for (let bi = 0; bi < 5; bi++) {
+      // Spawn 3 extra balls in a fan spread — already dangerous
+      for (let bi = 0; bi < 3; bi++) {
         const eb = createBall();
-        eb.x = p.x + (bi - 2) * 25;
+        eb.x = p.x + (bi - 1) * 30;
         eb.y = ARENA.top + 30;
-        eb.vx = (bi - 2) * 3;
+        eb.vx = (bi - 1) * 4;
         eb.vy = 2 + Math.random() * 2;
         eb.dangerous = true;
         eb.lastHitBy = p;
+        eb.owner = p;
         eb.bounced = true;
         eb.glowIntensity = 1;
         eb.life = 600;
@@ -910,6 +911,7 @@ function updateExtraBalls() {
     if (b.dangerous) {
       for (const p of players) {
         if (!p.alive) continue;
+        if (b.owner === p) continue; // multiball never kills its owner
         if (b.lastHitBy === p && !b.bounced) continue;
         const kneeY = p.y + p.h * 0.15;
         const feetY = p.y + p.h / 2;
