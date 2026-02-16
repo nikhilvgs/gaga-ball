@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gaga Ball</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: #1a1a2e;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  overflow: hidden;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+canvas {
+  border-radius: 8px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.5);
+  max-height: 100vh;
+  max-width: 100vw;
+  object-fit: contain;
+}
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const W = 900;
+const H = 550;
+canvas.width = W;
+canvas.height = H;
+
+// --- Arena ---
+const ARENA = {
+  left: 60,
+  right: W - 60,
+  floor: H - 80,
+  wallHeight: 260,
+};
+ARENA.top = ARENA.floor - ARENA.wallHeight;
+
+// --- Constants ---
+const GRAVITY = 0.45;
+const PLAYER_SPEED = 3.5;
+const JUMP_VEL = -9;
+const PLAYER_W = 24;
+const PLAYER_H = 40;
+const BALL_RADIUS = 5;
+const BALL_HIT_SPEED = 10;
+const BALL_FRICTION_X = 0.993;
+const BALL_FRICTION_FLOOR = 0.97;
+const BALL_BOUNCE = 0.65;
+const BALL_MIN_SPEED = 0.2;
+const HIT_RANGE = 50;
+const HIT_COOLDOWN = 18;
+
+// --- Input ---
+const keys = {};
+const justPressed = {};
+window.addEventListener('keydown', e => {
+  if (!keys[e.code]) justPressed[e.code] = true;
+  keys[e.code] = true;
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Escape', 'Enter'].includes(e.code)) {
+    e.preventDefault();
+  }
+});
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// --- Difficulty & Mode settings ---
+const DIFFICULTIES = {
+  easy: {
+    label: 'Easy',
+    desc: 'Slow AI, fewer opponents',
+    color: '#66bb6a',
+    aiCount: 2,
+    aiSpeedMult: 0.4,
+    aiThinkInterval: 40,   // frames between AI decisions
+    aiHitDelay: 30,         // extra frames before AI swings
+    aiDodgeChance: 0.005,
+    aiJumpChance: 0.005,
+    aiHitAccuracy: 0.3,
+    aiTargetPlayer: 0.2,    // chance to target the human vs random
+    ballSpeed: 7,
+  },
+  medium: {
+    label: 'Medium',
+    desc: 'Balanced challenge',
+    color: '#ffa726',
+    aiCount: 3,
+    aiSpeedMult: 0.7,
+    aiThinkInterval: 15,
+    aiHitDelay: 10,
+    aiDodgeChance: 0.02,
+    aiJumpChance: 0.02,
+    aiHitAccuracy: 0.6,
+    aiTargetPlayer: 0.4,
+    ballSpeed: 9,
+  },
+  hard: {
+    label: 'Hard',
+    desc: 'Fast AI, more opponents',
+    color: '#ef5350',
+    aiCount: 4,
+    aiSpeedMult: 1.0,
+    aiThinkInterval: 5,
+    aiHitDelay: 3,
+    aiDodgeChance: 0.06,
+    aiJumpChance: 0.05,
+    aiHitAccuracy: 0.85,
+    aiTargetPlayer: 0.6,
+    ballSpeed: 11,
+  },
+  insane: {
+    label: 'Insane',
+    desc: 'Ruthless AI, packed arena',
+    color: '#ab47bc',
+    aiCount: 5,
+    aiSpeedMult: 1.2,
+    aiThinkInterval: 1,
+    aiHitDelay: 0,
+    aiDodgeChance: 0.12,
+    aiJumpChance: 0.08,
+    aiHitAccuracy: 0.95,
+    aiTargetPlayer: 0.8,
+    ballSpeed: 13,
+  },
+};
+const DIFF_KEYS = ['easy', 'medium', 'hard', 'insane'];
+let selectedDifficulty = 1; // index into DIFF_KEYS
+let currentDifficulty = DIFFICULTIES.medium;
+
+// --- Game mode ---
+let gameMode = 'solo'; // 'solo' or 'public'
+
+// --- Game state ---
+let gameState = 'title'; // title, mode, menu, countdown, playing, gameover
+let countdownTimer = 0;
+let players = [];
+let ball = null;
+let particles = [];
+let prevAlive = [];
+let gagaBounceCount = 0;
+let gagaText = '';
+let gagaTextTimer = 0;
+let gagaBallCanBounce = true;
+let p2HasInput = false; // tracks if P2 has pressed any key during countdown
+
+// --- Colors ---
+const COLORS = ['#4fc3f7', '#ef5350', '#66bb6a', '#ffa726', '#ab47bc', '#ec407a'];
+const SKIN = ['#ffcc99', '#e8b88a', '#c8956c', '#ffcc99', '#f0c8a0', '#ffe0bd'];
+const NAMES = ['You', 'Red', 'Green', 'Orange', 'Purple', 'Pink'];
+
+// --- Entity creation ---
+// playerNum: 0 = AI, 1 = human player 1 (WASD+Space), 2 = human player 2 (Arrows+Enter)
+function createPlayer(index, x, playerNum) {
+  const diff = currentDifficulty;
+  const isHuman = playerNum > 0;
+  return {
+    x, y: ARENA.floor - PLAYER_H / 2,
+    vx: 0, vy: 0,
+    w: PLAYER_W, h: PLAYER_H,
+    color: COLORS[index % COLORS.length],
+    skin: SKIN[index % SKIN.length],
+    name: NAMES[index % NAMES.length],
+    isHuman,
+    playerNum,  // 0=AI, 1=P1, 2=P2
+    alive: true,
+    onGround: true,
+    facing: index < 2 ? 1 : -1,
+    hitCooldown: 0,
+    canHitBall: true,
+    // AI — tuned by difficulty
+    aiTimer: Math.floor(Math.random() * 60),  // stagger AI thinking
+    aiThinkInterval: isHuman ? 0 : diff.aiThinkInterval,
+    aiCanAct: false,          // set to true on think frames
+    aiHitDelay: isHuman ? 0 : diff.aiHitDelay,
+    aiHitWait: 0,             // countdown before AI actually swings
+    aiSpeedMult: isHuman ? 1 : diff.aiSpeedMult,
+    aiDodgeChance: isHuman ? 0 : diff.aiDodgeChance,
+    aiJumpChance: isHuman ? 0 : diff.aiJumpChance,
+    aiHitAccuracy: isHuman ? 1 : diff.aiHitAccuracy,
+    aiTargetPlayer: isHuman ? 0 : diff.aiTargetPlayer,
+    aiIdleTimer: 0,           // random idle pauses
+    aiMoveDir: 0,             // -1, 0, or 1 — persists between think frames
+    // Animation
+    walkFrame: 0,
+    hitAnim: 0,
+  };
+}
+
+function createBall() {
+  return {
+    x: W / 2,
+    y: ARENA.floor - 100,
+    vx: 0,
+    vy: 0,
+    radius: BALL_RADIUS,
+    dangerous: false,
+    lastHitBy: null,
+    bounced: false,
+    glowIntensity: 0,
+  };
+}
+
+function initGame() {
+  currentDifficulty = DIFFICULTIES[DIFF_KEYS[selectedDifficulty]];
+  players = [];
+  const humanCount = gameMode === 'public' ? 2 : 1;
+  const totalPlayers = currentDifficulty.aiCount + humanCount;
+  // Randomize spawn positions
+  const minX = ARENA.left + 40;
+  const maxX = ARENA.right - 40;
+  const positions = [];
+  const minGap = 50; // minimum space between players
+  for (let i = 0; i < totalPlayers; i++) {
+    let x, attempts = 0;
+    do {
+      x = minX + Math.random() * (maxX - minX);
+      attempts++;
+    } while (attempts < 100 && positions.some(px => Math.abs(px - x) < minGap));
+    positions.push(x);
+  }
+  for (let i = 0; i < totalPlayers; i++) {
+    let playerNum = 0; // AI
+    if (i === 0) playerNum = 1; // P1
+    else if (i === 1 && gameMode === 'public') playerNum = 2; // P2
+    players.push(createPlayer(i, positions[i], playerNum));
+  }
+  // Set names for public mode
+  if (gameMode === 'public') {
+    players[0].name = 'P1';
+    players[1].name = 'P2';
+  }
+  ball = createBall();
+  ball.y = ARENA.top + 20; // start ball high up
+  ball.vy = 0;
+  ball.vx = 0;
+  particles = [];
+  gameState = 'countdown';
+  countdownTimer = 0;
+  gagaBounceCount = 0;
+  gagaText = '';
+  gagaTextTimer = 0;
+  gagaBallCanBounce = true;
+  p2HasInput = false;
+}
+
+function convertToAI(p) {
+  const diff = currentDifficulty;
+  p.isHuman = false;
+  p.playerNum = 0;
+  p.aiThinkInterval = diff.aiThinkInterval;
+  p.aiHitDelay = diff.aiHitDelay;
+  p.aiSpeedMult = diff.aiSpeedMult;
+  p.aiDodgeChance = diff.aiDodgeChance;
+  p.aiJumpChance = diff.aiJumpChance;
+  p.aiHitAccuracy = diff.aiHitAccuracy;
+  p.aiTargetPlayer = diff.aiTargetPlayer;
+}
+
+// --- Physics helpers ---
+function clamp(val, min, max) { return Math.max(min, Math.min(max, val)); }
+
+function playerRect(p) {
+  return { left: p.x - p.w / 2, right: p.x + p.w / 2, top: p.y - p.h / 2, bottom: p.y + p.h / 2 };
+}
+
+function circleRectOverlap(cx, cy, cr, rect) {
+  const closestX = clamp(cx, rect.left, rect.right);
+  const closestY = clamp(cy, rect.top, rect.bottom);
+  const dx = cx - closestX;
+  const dy = cy - closestY;
+  return (dx * dx + dy * dy) < (cr * cr);
+}
+
+// --- Update ---
+function updatePlayer(p) {
+  if (!p.alive) return;
+  if (p.hitCooldown > 0) p.hitCooldown--;
+  if (p.hitAnim > 0) p.hitAnim--;
+
+  if (p.isHuman) {
+    updateHuman(p);
+  } else {
+    updateAI(p);
+  }
+
+  // Gravity
+  p.vy += GRAVITY;
+  p.y += p.vy;
+  p.x += p.vx;
+  p.vx *= 0.85;
+
+  // Floor
+  if (p.y + p.h / 2 >= ARENA.floor) {
+    p.y = ARENA.floor - p.h / 2;
+    p.vy = 0;
+    p.onGround = true;
+  } else {
+    p.onGround = false;
+  }
+
+  // Walls
+  if (p.x - p.w / 2 < ARENA.left) { p.x = ARENA.left + p.w / 2; p.vx = 0; }
+  if (p.x + p.w / 2 > ARENA.right) { p.x = ARENA.right - p.w / 2; p.vx = 0; }
+
+  // Walk animation
+  const isMoving = p.isHuman && (
+    (p.playerNum !== 2 && (keys['KeyA'] || keys['KeyD'])) ||
+    (p.playerNum !== 1 && (keys['ArrowLeft'] || keys['ArrowRight']))
+  );
+  if (Math.abs(p.vx) > 0.5 || isMoving) {
+    p.walkFrame += 0.15;
+  } else {
+    p.walkFrame = 0;
+  }
+}
+
+function updateHuman(p) {
+  if (p.playerNum === 1 && gameMode === 'public') {
+    // Public mode P1: WASD + Space only
+    if (keys['KeyA']) { p.x -= PLAYER_SPEED; p.facing = -1; }
+    if (keys['KeyD']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if (justPressed['KeyW'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (keys['Space'] && p.hitCooldown <= 0) {
+      tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
+    }
+  } else if (p.playerNum === 2) {
+    // Public mode P2: Arrows + Enter
+    if (keys['ArrowLeft']) { p.x -= PLAYER_SPEED; p.facing = -1; }
+    if (keys['ArrowRight']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if (justPressed['ArrowUp'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (keys['Enter'] && p.hitCooldown <= 0) {
+      tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
+    }
+  } else {
+    // Solo mode: both WASD and Arrows work
+    if (keys['ArrowLeft'] || keys['KeyA']) { p.x -= PLAYER_SPEED; p.facing = -1; }
+    if (keys['ArrowRight'] || keys['KeyD']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if ((justPressed['ArrowUp'] || justPressed['KeyW']) && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (keys['Space'] && p.hitCooldown <= 0) {
+      tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
+    }
+  }
+}
+
+function updateAI(p) {
+  if (!ball) return;
+  p.aiTimer++;
+  if (p.aiHitWait > 0) p.aiHitWait--;
+  if (p.aiIdleTimer > 0) { p.aiIdleTimer--; p.aiMoveDir = 0; return; }
+
+  // AI makes NEW decisions only on think frames (slower = dumber)
+  // but keeps moving in their chosen direction every frame
+  const canThink = (p.aiTimer % p.aiThinkInterval) === 0;
+
+  const dx = ball.x - p.x;
+  const dy = ball.y - p.y;
+  const distToBall = Math.sqrt(dx * dx + dy * dy);
+  const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+  const aiSpeed = PLAYER_SPEED * p.aiSpeedMult;
+
+  // Is ball coming at me?
+  const ballHeadingToMe = ball.dangerous && ballSpeed > 2 &&
+    Math.sign(ball.vx) === Math.sign(p.x - ball.x) &&
+    Math.abs(ball.y - p.y) < 80 &&
+    Math.abs(ball.x - p.x) < 200;
+
+  // --- DECISIONS (only on think frames) ---
+  if (canThink) {
+    if (ballHeadingToMe) {
+      // Decide to dodge
+      if (p.onGround && Math.abs(ball.x - p.x) < 120 && Math.random() < p.aiDodgeChance) {
+        p.vy = JUMP_VEL;
+        p.onGround = false;
+      }
+      // Move away from ball
+      p.aiMoveDir = ball.x < p.x ? 1 : -1;
+    } else if (distToBall < HIT_RANGE && p.canHitBall && p.hitCooldown <= 0 && ball.y > ARENA.top) {
+      // Close to ball — try to hit it
+      if (p.aiHitWait <= 0) {
+        let target = null;
+        if (Math.random() < p.aiHitAccuracy) {
+          const alive = players.filter(o => o !== p && o.alive);
+          if (alive.length > 0) {
+            if (Math.random() < p.aiTargetPlayer) {
+              target = alive.find(o => o.isHuman) || alive[0];
+            } else {
+              target = alive[Math.floor(Math.random() * alive.length)];
+            }
+          }
+        }
+        if (target) {
+          p.facing = target.x > p.x ? 1 : -1;
+        } else {
+          p.facing = Math.random() < 0.5 ? 1 : -1;
+        }
+        tryHitBall(p);
+        p.hitCooldown = HIT_COOLDOWN;
+        p.hitAnim = 10;
+        p.aiMoveDir = 0;
+        p.aiIdleTimer = Math.floor(Math.random() * p.aiThinkInterval * 0.5);
+      } else {
+        p.aiMoveDir = 0; // stand near ball waiting
+      }
+    } else {
+      // Decide direction toward ball
+      if (Math.abs(dx) > 30) {
+        p.aiMoveDir = dx > 0 ? 1 : -1;
+      } else {
+        p.aiMoveDir = 0;
+      }
+      // Jump if ball is above
+      if (ball.y < p.y - 40 && distToBall < 100 && p.onGround && Math.random() < p.aiJumpChance) {
+        p.vy = JUMP_VEL;
+        p.onGround = false;
+      }
+    }
+
+    // Start hit delay if near ball and haven't started yet
+    if (distToBall < HIT_RANGE && p.canHitBall && p.hitCooldown <= 0 && p.aiHitWait <= 0 && ball.y > ARENA.top) {
+      p.aiHitWait = p.aiHitDelay;
+    }
+  }
+
+  // --- MOVEMENT (every frame, using last decision) ---
+  if (p.aiMoveDir !== 0) {
+    p.x += p.aiMoveDir * aiSpeed;
+    p.facing = p.aiMoveDir;
+  }
+}
+
+function tryHitBall(p) {
+  if (!ball || !p.canHitBall) return;
+  const dx = ball.x - p.x;
+  const dy = ball.y - (p.y - 5);
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d < HIT_RANGE) {
+    // Hit in facing direction — keep ball low (gaga ball is a ground game)
+    const hitSpeed = currentDifficulty.ballSpeed;
+    ball.vx = p.facing * hitSpeed;
+    ball.vy = -2;  // tiny upward pop, stays near ground level
+    ball.dangerous = true;
+    ball.lastHitBy = p;
+    ball.bounced = false;
+    ball.glowIntensity = 1;
+
+    for (const pl of players) pl.canHitBall = true;
+    p.canHitBall = false;
+  }
+}
+
+function updateBall() {
+  if (!ball) return;
+
+  // Gravity
+  ball.vy += GRAVITY;
+
+  ball.x += ball.vx;
+  ball.y += ball.vy;
+
+  // Friction
+  ball.vx *= BALL_FRICTION_X;
+
+  // Glow decay
+  ball.glowIntensity *= 0.97;
+
+  // Floor bounce
+  if (ball.y + ball.radius >= ARENA.floor) {
+    ball.y = ARENA.floor - ball.radius;
+    ball.vy = -Math.abs(ball.vy) * BALL_BOUNCE;
+    ball.vx *= BALL_FRICTION_FLOOR;
+    if (Math.abs(ball.vy) < 1.5) ball.vy = 0;
+
+    ball.bounced = true;
+    ball.glowIntensity = Math.min(ball.glowIntensity + 0.2, 1);
+  }
+
+  // Wall bounces
+  if (ball.x - ball.radius < ARENA.left) {
+    ball.x = ARENA.left + ball.radius;
+    ball.vx = Math.abs(ball.vx) * 0.85;
+    ball.bounced = true;
+    ball.glowIntensity = Math.min(ball.glowIntensity + 0.2, 1);
+  }
+  if (ball.x + ball.radius > ARENA.right) {
+    ball.x = ARENA.right - ball.radius;
+    ball.vx = -Math.abs(ball.vx) * 0.85;
+    ball.bounced = true;
+    ball.glowIntensity = Math.min(ball.glowIntensity + 0.2, 1);
+  }
+
+  // Stop if too slow
+  const speed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
+  if (speed < BALL_MIN_SPEED && ball.y + ball.radius >= ARENA.floor - 1) {
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.dangerous = false;
+  }
+
+  // Player collision (elimination — only hits at knees or below count)
+  if (ball.dangerous) {
+    for (const p of players) {
+      if (!p.alive) continue;
+      if (ball.lastHitBy === p && !ball.bounced) continue;
+      // Legs zone: from knees down to feet
+      const kneeY = p.y + p.h * 0.15;  // knees are ~60% down the body
+      const feetY = p.y + p.h / 2;
+      const legRect = { left: p.x - p.w / 2 - 2, right: p.x + p.w / 2 + 2, top: kneeY, bottom: feetY };
+      if (circleRectOverlap(ball.x, ball.y, ball.radius, legRect)) {
+        p.alive = false;
+        spawnParticles(p.x, feetY, p.color);
+        ball.vx *= 0.3;
+        ball.vy *= 0.3;
+        ball.dangerous = false;
+        ball.glowIntensity = 0;
+        break;
+      }
+    }
+  }
+}
+
+function checkGameOver() {
+  const alive = players.filter(p => p.alive);
+  if (alive.length <= 1) gameState = 'gameover';
+}
+
+// --- Particles ---
+function spawnParticles(x, y, color) {
+  for (let i = 0; i < 20; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * 4;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      life: 30 + Math.random() * 30,
+      maxLife: 60,
+      color,
+      radius: 2 + Math.random() * 3,
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += 0.1;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// --- Drawing ---
+function drawArena() {
+  // Sky gradient
+  const sky = ctx.createLinearGradient(0, 0, 0, ARENA.floor);
+  sky.addColorStop(0, '#0d1b2a');
+  sky.addColorStop(1, '#1b2838');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, W, ARENA.floor);
+
+  // Floor
+  ctx.fillStyle = '#3a3a5c';
+  ctx.fillRect(ARENA.left, ARENA.floor, ARENA.right - ARENA.left, H - ARENA.floor);
+
+  // Floor lines
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+  ctx.lineWidth = 1;
+  for (let x = ARENA.left; x < ARENA.right; x += 40) {
+    ctx.beginPath();
+    ctx.moveTo(x, ARENA.floor);
+    ctx.lineTo(x, H);
+    ctx.stroke();
+  }
+
+  // Floor surface line
+  ctx.strokeStyle = '#5c6bc0';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ARENA.left, ARENA.floor);
+  ctx.lineTo(ARENA.right, ARENA.floor);
+  ctx.stroke();
+
+  // Left wall
+  ctx.fillStyle = '#2a2a44';
+  ctx.fillRect(ARENA.left - 12, ARENA.top, 12, ARENA.wallHeight);
+  ctx.strokeStyle = '#5c6bc0';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ARENA.left, ARENA.top);
+  ctx.lineTo(ARENA.left, ARENA.floor);
+  ctx.stroke();
+
+  // Right wall
+  ctx.fillStyle = '#2a2a44';
+  ctx.fillRect(ARENA.right, ARENA.top, 12, ARENA.wallHeight);
+  ctx.strokeStyle = '#5c6bc0';
+  ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(ARENA.right, ARENA.top);
+  ctx.lineTo(ARENA.right, ARENA.floor);
+  ctx.stroke();
+
+  // Wall glow
+  ctx.strokeStyle = 'rgba(92, 107, 192, 0.15)';
+  ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(ARENA.left, ARENA.top);
+  ctx.lineTo(ARENA.left, ARENA.floor);
+  ctx.lineTo(ARENA.right, ARENA.floor);
+  ctx.lineTo(ARENA.right, ARENA.top);
+  ctx.stroke();
+
+  // Wall top caps
+  ctx.fillStyle = '#7986cb';
+  ctx.fillRect(ARENA.left - 14, ARENA.top - 4, 16, 8);
+  ctx.fillRect(ARENA.right - 2, ARENA.top - 4, 16, 8);
+
+  // Below arena
+  ctx.fillStyle = '#252540';
+  ctx.fillRect(0, ARENA.floor, ARENA.left, H - ARENA.floor);
+  ctx.fillRect(ARENA.right, ARENA.floor, W - ARENA.right, H - ARENA.floor);
+}
+
+function drawPlayer(p) {
+  const footY = p.y + p.h / 2;
+  const headY = p.y - p.h / 2;
+  const centerY = p.y;
+
+  // Shadow on ground
+  if (!p.onGround) {
+    ctx.beginPath();
+    ctx.ellipse(p.x, ARENA.floor, p.w * 0.5, 4, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.fill();
+  }
+
+  // Legs (walk animation)
+  const legSwing = p.onGround ? Math.sin(p.walkFrame * 3) * 5 : 3;
+  ctx.strokeStyle = p.color;
+  ctx.lineWidth = 4;
+  ctx.lineCap = 'round';
+  // Left leg
+  ctx.beginPath();
+  ctx.moveTo(p.x - 4, centerY + 8);
+  ctx.lineTo(p.x - 4 + legSwing, footY);
+  ctx.stroke();
+  // Right leg
+  ctx.beginPath();
+  ctx.moveTo(p.x + 4, centerY + 8);
+  ctx.lineTo(p.x + 4 - legSwing, footY);
+  ctx.stroke();
+
+  // Body
+  ctx.fillStyle = p.color;
+  ctx.beginPath();
+  ctx.roundRect(p.x - 10, centerY - 10, 20, 22, 4);
+  ctx.fill();
+
+  // Arms
+  const armAngle = p.hitAnim > 0 ? p.facing * 12 : 0;
+  ctx.strokeStyle = p.skin;
+  ctx.lineWidth = 4;
+  // Back arm
+  ctx.beginPath();
+  ctx.moveTo(p.x - p.facing * 6, centerY - 2);
+  ctx.lineTo(p.x - p.facing * 14, centerY + 6);
+  ctx.stroke();
+  // Front arm (swings when hitting)
+  ctx.beginPath();
+  ctx.moveTo(p.x + p.facing * 6, centerY - 2);
+  ctx.lineTo(p.x + p.facing * 18 + armAngle, centerY - 4 - (p.hitAnim > 0 ? 8 : 0));
+  ctx.stroke();
+  // Hand
+  if (p.hitAnim > 0) {
+    ctx.beginPath();
+    ctx.arc(p.x + p.facing * 18 + armAngle, centerY - 12, 4, 0, Math.PI * 2);
+    ctx.fillStyle = p.skin;
+    ctx.fill();
+  }
+
+  // Head
+  ctx.beginPath();
+  ctx.arc(p.x, headY + 6, 10, 0, Math.PI * 2);
+  ctx.fillStyle = p.skin;
+  ctx.fill();
+
+  // Eyes
+  ctx.fillStyle = '#333';
+  ctx.beginPath();
+  ctx.arc(p.x + p.facing * 3, headY + 4, 2, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(p.x + p.facing * 7, headY + 4, 2, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Name tag
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = p.color;
+  ctx.fillText(p.name, p.x, headY - 8);
+}
+
+function drawBall() {
+  if (!ball) return;
+
+  // Glow
+  if (ball.dangerous && ball.glowIntensity > 0.1) {
+    const g = ctx.createRadialGradient(ball.x, ball.y, ball.radius, ball.x, ball.y, ball.radius + 25 * ball.glowIntensity);
+    g.addColorStop(0, `rgba(255, 87, 34, ${ball.glowIntensity * 0.4})`);
+    g.addColorStop(1, 'rgba(255, 87, 34, 0)');
+    ctx.beginPath();
+    ctx.arc(ball.x, ball.y, ball.radius + 25 * ball.glowIntensity, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(ball.x, ARENA.floor, ball.radius * 0.8, 3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.fill();
+
+  // Ball
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.radius, 0, Math.PI * 2);
+  ctx.fillStyle = ball.dangerous ? '#ff5722' : '#e0e0e0';
+  ctx.fill();
+  ctx.strokeStyle = ball.dangerous ? '#d84315' : '#bdbdbd';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Highlight
+  ctx.beginPath();
+  ctx.arc(ball.x - 3, ball.y - 3, ball.radius * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fill();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const alpha = p.life / p.maxLife;
+    ctx.globalAlpha = alpha;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.radius * alpha, 0, Math.PI * 2);
+    ctx.fillStyle = p.color;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+function drawHUD() {
+  const alive = players.filter(p => p.alive);
+
+  ctx.font = '13px sans-serif';
+  ctx.textAlign = 'left';
+  let y = 22;
+  for (const p of players) {
+    const a = p.alive ? 1 : 0.3;
+    ctx.fillStyle = `rgba(255,255,255,${a})`;
+    ctx.fillText(p.alive ? '●' : '✕', 12, y);
+    ctx.fillStyle = p.alive ? p.color : `rgba(128,128,128,${a})`;
+    ctx.fillText(p.name, 28, y);
+    y += 20;
+  }
+
+  ctx.font = 'bold 15px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#fff';
+  ctx.fillText(`${alive.length} remaining`, W - 15, 22);
+
+  if (gameState === 'playing') {
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    if (gameMode === 'public') {
+      ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
+    } else {
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
+    }
+  }
+}
+
+let selectedMode = 0; // 0 = Solo, 1 = Public
+
+function drawTitle() {
+  ctx.fillStyle = 'rgba(26, 26, 46, 0.85)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = 'bold 64px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#5c6bc0';
+  ctx.fillText('GAGA BALL', W / 2, H / 2 - 80);
+
+  ctx.font = '20px sans-serif';
+  ctx.fillStyle = '#9fa8da';
+  ctx.fillText('Last one standing wins!', W / 2, H / 2 - 35);
+
+  ctx.font = '15px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  const instr = [
+    'A/D or Arrow Keys to move left/right',
+    'W / Up to jump',
+    'Space to hit the ball',
+    'Hit opponents with the ball to eliminate them',
+  ];
+  instr.forEach((t, i) => ctx.fillText(t, W / 2, H / 2 + 10 + i * 26));
+
+  ctx.font = 'bold 22px sans-serif';
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+  ctx.fillText('Press ENTER to Play', W / 2, H / 2 + 150);
+}
+
+function drawModeSelect() {
+  ctx.fillStyle = 'rgba(26, 26, 46, 0.92)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = 'bold 42px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#5c6bc0';
+  ctx.fillText('SELECT MODE', W / 2, 100);
+
+  const modes = [
+    { label: 'Solo', desc: 'You vs AI opponents', icon: '1P', color: '#4fc3f7' },
+    { label: 'Public', desc: '2 players + AI on same keyboard', icon: '2P', color: '#66bb6a' },
+  ];
+
+  const cardW = 200;
+  const cardH = 200;
+  const gap = 40;
+  const totalW = modes.length * cardW + (modes.length - 1) * gap;
+  const startX = (W - totalW) / 2;
+  const cardY = 150;
+
+  for (let i = 0; i < modes.length; i++) {
+    const m = modes[i];
+    const x = startX + i * (cardW + gap);
+    const sel = i === selectedMode;
+
+    // Card background
+    ctx.fillStyle = sel ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 10);
+    ctx.fill();
+
+    if (sel) {
+      ctx.strokeStyle = m.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, cardY, cardW, cardH, 10);
+      ctx.stroke();
+      ctx.shadowColor = m.color;
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = m.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, cardY, cardW, cardH, 10);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Icon
+    ctx.font = 'bold 40px sans-serif';
+    ctx.fillStyle = sel ? m.color : 'rgba(255,255,255,0.4)';
+    ctx.fillText(m.icon, x + cardW / 2, cardY + 60);
+
+    // Label
+    ctx.font = 'bold 24px sans-serif';
+    ctx.fillStyle = sel ? m.color : 'rgba(255,255,255,0.5)';
+    ctx.fillText(m.label, x + cardW / 2, cardY + 100);
+
+    // Description
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = sel ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)';
+    ctx.fillText(m.desc, x + cardW / 2, cardY + 130);
+
+    // Key hint
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = sel ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
+    ctx.fillText(`[${i + 1}]`, x + cardW / 2, cardY + cardH - 15);
+  }
+
+  ctx.font = '15px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('← → to select', W / 2, cardY + cardH + 50);
+
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+  ctx.fillText('Press ENTER to Continue', W / 2, cardY + cardH + 90);
+
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillText('ESC to go back', W / 2, H - 20);
+}
+
+function drawMenu() {
+  ctx.fillStyle = 'rgba(26, 26, 46, 0.92)';
+  ctx.fillRect(0, 0, W, H);
+
+  // Title
+  ctx.font = 'bold 42px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#5c6bc0';
+  ctx.fillText('SELECT DIFFICULTY', W / 2, 80);
+
+  // Difficulty cards
+  const cardW = 160;
+  const cardH = 180;
+  const gap = 20;
+  const totalW = DIFF_KEYS.length * cardW + (DIFF_KEYS.length - 1) * gap;
+  const startX = (W - totalW) / 2;
+  const cardY = 130;
+
+  for (let i = 0; i < DIFF_KEYS.length; i++) {
+    const diff = DIFFICULTIES[DIFF_KEYS[i]];
+    const x = startX + i * (cardW + gap);
+    const selected = i === selectedDifficulty;
+
+    // Card background
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)';
+    ctx.beginPath();
+    ctx.roundRect(x, cardY, cardW, cardH, 10);
+    ctx.fill();
+
+    // Selected border
+    if (selected) {
+      ctx.strokeStyle = diff.color;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.roundRect(x, cardY, cardW, cardH, 10);
+      ctx.stroke();
+
+      // Glow
+      ctx.shadowColor = diff.color;
+      ctx.shadowBlur = 15;
+      ctx.strokeStyle = diff.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(x, cardY, cardW, cardH, 10);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+
+    // Difficulty name
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = selected ? diff.color : 'rgba(255,255,255,0.5)';
+    ctx.fillText(diff.label, x + cardW / 2, cardY + 40);
+
+    // Description
+    ctx.font = '13px sans-serif';
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)';
+    ctx.fillText(diff.desc, x + cardW / 2, cardY + 65);
+
+    // Stats
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.6)' : 'rgba(255,255,255,0.25)';
+    ctx.fillText(`${diff.aiCount} opponents`, x + cardW / 2, cardY + 100);
+
+    // Speed bar
+    const barW = 80;
+    const barH = 6;
+    const barX = x + (cardW - barW) / 2;
+    const barY2 = cardY + 120;
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(barX, barY2, barW, barH);
+    const fill = Math.min(diff.aiSpeedMult / 1.2, 1);
+    ctx.fillStyle = selected ? diff.color : 'rgba(255,255,255,0.25)';
+    ctx.fillRect(barX, barY2, barW * fill, barH);
+    ctx.font = '10px sans-serif';
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.2)';
+    ctx.fillText('AI Speed', x + cardW / 2, barY2 + 18);
+
+    // Key hint
+    ctx.font = 'bold 14px sans-serif';
+    ctx.fillStyle = selected ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
+    ctx.fillText(`[${i + 1}]`, x + cardW / 2, cardY + cardH - 12);
+  }
+
+  // Instructions
+  ctx.font = '15px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.fillText('← → or 1-4 to select', W / 2, cardY + cardH + 50);
+
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+  ctx.fillText('Press ENTER to Start', W / 2, cardY + cardH + 90);
+
+  // Back hint
+  ctx.font = '12px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.3)';
+  ctx.fillText('ESC to go back', W / 2, H - 20);
+}
+
+function drawCountdown() {
+  if (gagaTextTimer > 0 && gagaText) {
+    const alpha = gagaTextTimer / 40;
+    const scale = 1 + (1 - alpha) * 0.3; // text grows slightly as it fades
+    ctx.save();
+    ctx.translate(W / 2, H / 2 - 20);
+    ctx.scale(scale, scale);
+    ctx.font = 'bold 90px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255, 255, 255, ${alpha})`;
+    ctx.fillText(gagaText, 0, 0);
+    ctx.restore();
+  }
+  // Show "GO!" briefly after third bounce
+  if (gagaBounceCount >= 3 && countdownTimer > 0) {
+    const alpha = countdownTimer / 30;
+    ctx.font = 'bold 80px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = `rgba(255, 235, 59, ${alpha})`;
+    ctx.fillText('GO!', W / 2, H / 2 - 20);
+  }
+}
+
+function drawGameOver() {
+  const winner = players.find(p => p.alive);
+
+  ctx.fillStyle = 'rgba(26, 26, 46, 0.7)';
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.font = 'bold 48px sans-serif';
+  ctx.textAlign = 'center';
+
+  if (winner) {
+    ctx.fillStyle = winner.color;
+    ctx.fillText(`${winner.name} wins!`, W / 2, H / 2 - 30);
+  } else {
+    ctx.fillStyle = '#fff';
+    ctx.fillText('Draw!', W / 2, H / 2 - 30);
+  }
+
+  if (winner && winner.isHuman) {
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#ffeb3b';
+    if (gameMode === 'public') {
+      ctx.fillText(`${winner.name} is the champion!`, W / 2, H / 2 + 15);
+    } else {
+      ctx.fillText('You are the champion!', W / 2, H / 2 + 15);
+    }
+  } else if (winner) {
+    ctx.font = '24px sans-serif';
+    ctx.fillStyle = '#ef5350';
+    ctx.fillText('Better luck next time!', W / 2, H / 2 + 15);
+  }
+
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+  ctx.fillText('Press ENTER to Play Again', W / 2, H / 2 + 70);
+}
+
+// --- Game loop ---
+function gameLoop() {
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, W, H);
+
+  drawArena();
+
+  switch (gameState) {
+    case 'title':
+      drawTitle();
+      if (justPressed['Enter']) gameState = 'mode';
+      break;
+
+    case 'mode':
+      drawModeSelect();
+      if (justPressed['ArrowLeft'] || justPressed['KeyA']) selectedMode = 0;
+      if (justPressed['ArrowRight'] || justPressed['KeyD']) selectedMode = 1;
+      if (justPressed['Digit1']) selectedMode = 0;
+      if (justPressed['Digit2']) selectedMode = 1;
+      if (justPressed['Enter']) {
+        gameMode = selectedMode === 0 ? 'solo' : 'public';
+        gameState = 'menu';
+      }
+      if (justPressed['Escape']) gameState = 'title';
+      break;
+
+    case 'menu':
+      drawMenu();
+      if (justPressed['ArrowLeft'] || justPressed['KeyA']) {
+        selectedDifficulty = Math.max(0, selectedDifficulty - 1);
+      }
+      if (justPressed['ArrowRight'] || justPressed['KeyD']) {
+        selectedDifficulty = Math.min(DIFF_KEYS.length - 1, selectedDifficulty + 1);
+      }
+      if (justPressed['Digit1']) selectedDifficulty = 0;
+      if (justPressed['Digit2']) selectedDifficulty = 1;
+      if (justPressed['Digit3']) selectedDifficulty = 2;
+      if (justPressed['Digit4']) selectedDifficulty = 3;
+      if (justPressed['Enter']) initGame();
+      if (justPressed['Escape']) gameState = 'mode';
+      break;
+
+    case 'countdown':
+      // In public mode, detect if P2 has pressed any key
+      if (gameMode === 'public' && !p2HasInput) {
+        if (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'] || keys['Enter']) {
+          p2HasInput = true;
+        }
+      }
+
+      // Ball physics during countdown (gravity + floor bounce)
+      ball.vy += GRAVITY;
+      ball.y += ball.vy;
+      ball.x += ball.vx;
+
+      // Floor bounce — count the bounces for GA-GA-BALL
+      // Only count a bounce if the ball was above the floor last frame (gagaBallCanBounce)
+      if (ball.y + ball.radius >= ARENA.floor) {
+        ball.y = ARENA.floor - ball.radius;
+        ball.vy = -Math.abs(ball.vy) * 0.85; // higher restitution for visible bounces
+        if (gagaBallCanBounce && gagaBounceCount < 3) {
+          gagaBounceCount++;
+          const words = ['GA', 'GA', 'BALL!'];
+          gagaText = words[gagaBounceCount - 1];
+          gagaTextTimer = 45;
+          gagaBallCanBounce = false; // must leave floor before next bounce counts
+          if (gagaBounceCount >= 3) {
+            countdownTimer = 40; // brief pause then play
+          }
+        }
+      } else {
+        // Ball is above the floor — next floor contact can count as a bounce
+        gagaBallCanBounce = true;
+      }
+
+      // Wall bounces during countdown
+      if (ball.x - ball.radius < ARENA.left) {
+        ball.x = ARENA.left + ball.radius;
+        ball.vx = Math.abs(ball.vx) * 0.85;
+      }
+      if (ball.x + ball.radius > ARENA.right) {
+        ball.x = ARENA.right - ball.radius;
+        ball.vx = -Math.abs(ball.vx) * 0.85;
+      }
+
+      if (gagaTextTimer > 0) gagaTextTimer--;
+
+      // After the 3rd bounce, count down then start
+      if (gagaBounceCount >= 3) {
+        countdownTimer--;
+        if (countdownTimer <= 0) {
+          // If P2 never pressed anything, convert them to AI
+          if (gameMode === 'public' && !p2HasInput) {
+            const p2 = players.find(p => p.playerNum === 2);
+            if (p2) convertToAI(p2);
+          }
+          gameState = 'playing';
+          ball.vx = (Math.random() - 0.5) * 4;
+          ball.vy = -2;
+          ball.dangerous = false;
+          prevAlive = players.map(p => p.alive);
+        }
+      }
+
+      for (const p of players) drawPlayer(p);
+      drawBall();
+      drawHUD();
+      drawCountdown();
+      break;
+
+    case 'playing':
+      // Track eliminations
+      for (let i = 0; i < players.length; i++) {
+        if (prevAlive[i] && !players[i].alive) {
+          spawnParticles(players[i].x, players[i].y, players[i].color);
+        }
+        prevAlive[i] = players[i].alive;
+      }
+
+      for (const p of players) updatePlayer(p);
+      updateBall();
+      updateParticles();
+      checkGameOver();
+
+      // Draw dead players faintly
+      for (const p of players) {
+        if (!p.alive) { ctx.globalAlpha = 0.15; drawPlayer(p); ctx.globalAlpha = 1; }
+      }
+      for (const p of players) {
+        if (p.alive) drawPlayer(p);
+      }
+      drawBall();
+      drawParticles();
+      drawHUD();
+      break;
+
+    case 'gameover':
+      for (const p of players) {
+        if (!p.alive) { ctx.globalAlpha = 0.15; drawPlayer(p); ctx.globalAlpha = 1; }
+      }
+      for (const p of players) {
+        if (p.alive) drawPlayer(p);
+      }
+      drawBall();
+      updateParticles();
+      drawParticles();
+      drawHUD();
+      drawGameOver();
+
+      if (justPressed['Enter']) initGame();
+      break;
+  }
+
+  // Clear justPressed at end of frame
+  for (const k in justPressed) justPressed[k] = false;
+
+  requestAnimationFrame(gameLoop);
+}
+
+gameLoop();
+</script>
+</body>
+</html>
