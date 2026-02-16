@@ -601,15 +601,17 @@ function updateHuman(p) {
     }
     if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
       p.abilityAvailable.multiball = false;
-      // Spawn an extra ball from above
-      const eb = createBall();
-      eb.x = p.x;
-      eb.y = ARENA.top + 30;
-      eb.vx = (Math.random() - 0.5) * 6;
-      eb.vy = 2;
-      eb.dangerous = false;
-      eb.life = 600; // lasts 10 seconds
-      extraBalls.push(eb);
+      // Spawn 5 extra balls in a fan spread
+      for (let bi = 0; bi < 5; bi++) {
+        const eb = createBall();
+        eb.x = p.x + (bi - 2) * 25;
+        eb.y = ARENA.top + 30;
+        eb.vx = (bi - 2) * 3;
+        eb.vy = 2 + Math.random() * 2;
+        eb.dangerous = false;
+        eb.life = 600;
+        extraBalls.push(eb);
+      }
       spawnAbilityParticles(p.x, p.y, '#e53935');
     }
   }
