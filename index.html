@@ -133,7 +133,7 @@ canvas {
   <div class="touch-group right-group">
     <div class="ability-row" id="ability-buttons" style="display:none;flex-direction:row;gap:6px;margin-bottom:6px">
       <button class="touch-btn ability-btn" id="btn-ability-1" style="width:48px;height:48px;font-size:18px;border-color:rgba(255,152,0,0.6);background:rgba(255,152,0,0.12)">👊</button>
-      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⚡</button>
+      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⬆️</button>
       <button class="touch-btn ability-btn" id="btn-ability-3" style="width:48px;height:48px;font-size:18px;border-color:rgba(229,57,53,0.6);background:rgba(229,57,53,0.12)">🔴</button>
     </div>
     <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
@@ -274,7 +274,7 @@ function updateTouchUI() {
     if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
       const human = players.find(p => p.playerNum === 1 && p.alive);
       if (human) {
-        const ids = ['ironfist', 'speed', 'multiball'];
+        const ids = ['ironfist', 'doublejump', 'multiball'];
         const btnIds = ['btn-ability-1', 'btn-ability-2', 'btn-ability-3'];
         for (let i = 0; i < 3; i++) {
           const btn = document.getElementById(btnIds[i]);
@@ -309,70 +309,70 @@ const DIFFICULTIES = {
     desc: 'Slow AI, fewer opponents',
     color: '#66bb6a',
     aiCount: 2,
-    aiSpeedMult: 0.4,
-    aiThinkInterval: 40,   // frames between AI decisions
-    aiHitDelay: 30,         // extra frames before AI swings
-    aiDodgeChance: 0.005,
-    aiJumpChance: 0.005,
-    aiHitAccuracy: 0.3,
-    aiTargetPlayer: 0.2,    // chance to target the human vs random
-    ballSpeed: 7,
+    aiSpeedMult: 0.5,
+    aiThinkInterval: 35,   // frames between AI decisions
+    aiHitDelay: 25,         // extra frames before AI swings
+    aiDodgeChance: 0.01,
+    aiJumpChance: 0.01,
+    aiHitAccuracy: 0.35,
+    aiTargetPlayer: 0.25,   // chance to target the human vs random
+    ballSpeed: 8,
   },
   medium: {
     label: 'Medium',
     desc: 'Balanced challenge',
     color: '#ffa726',
     aiCount: 3,
-    aiSpeedMult: 0.7,
-    aiThinkInterval: 15,
-    aiHitDelay: 10,
-    aiDodgeChance: 0.02,
-    aiJumpChance: 0.02,
-    aiHitAccuracy: 0.6,
-    aiTargetPlayer: 0.4,
-    ballSpeed: 9,
+    aiSpeedMult: 0.8,
+    aiThinkInterval: 12,
+    aiHitDelay: 8,
+    aiDodgeChance: 0.03,
+    aiJumpChance: 0.03,
+    aiHitAccuracy: 0.65,
+    aiTargetPlayer: 0.45,
+    ballSpeed: 10,
   },
   hard: {
     label: 'Hard',
     desc: 'Fast AI, more opponents',
     color: '#ef5350',
     aiCount: 4,
-    aiSpeedMult: 1.0,
-    aiThinkInterval: 5,
-    aiHitDelay: 3,
-    aiDodgeChance: 0.06,
-    aiJumpChance: 0.05,
-    aiHitAccuracy: 0.85,
-    aiTargetPlayer: 0.6,
-    ballSpeed: 11,
+    aiSpeedMult: 1.1,
+    aiThinkInterval: 4,
+    aiHitDelay: 2,
+    aiDodgeChance: 0.08,
+    aiJumpChance: 0.06,
+    aiHitAccuracy: 0.88,
+    aiTargetPlayer: 0.65,
+    ballSpeed: 12,
   },
   insane: {
     label: 'Insane',
     desc: 'Ruthless AI, packed arena',
     color: '#ab47bc',
     aiCount: 5,
-    aiSpeedMult: 1.2,
+    aiSpeedMult: 1.3,
     aiThinkInterval: 1,
     aiHitDelay: 0,
-    aiDodgeChance: 0.12,
-    aiJumpChance: 0.08,
-    aiHitAccuracy: 0.95,
-    aiTargetPlayer: 0.8,
-    ballSpeed: 13,
+    aiDodgeChance: 0.15,
+    aiJumpChance: 0.1,
+    aiHitAccuracy: 0.97,
+    aiTargetPlayer: 0.85,
+    ballSpeed: 14,
   },
   impossible: {
     label: 'Impossible',
     desc: 'You will not survive',
     color: '#f44336',
     aiCount: 5,
-    aiSpeedMult: 1.35,
-    aiThinkInterval: 2,
-    aiHitDelay: 1,
-    aiDodgeChance: 0.18,
-    aiJumpChance: 0.12,
-    aiHitAccuracy: 0.95,
-    aiTargetPlayer: 0.85,
-    ballSpeed: 14,
+    aiSpeedMult: 1.7,
+    aiThinkInterval: 1,
+    aiHitDelay: 0,
+    aiDodgeChance: 0.4,
+    aiJumpChance: 0.25,
+    aiHitAccuracy: 1.0,
+    aiTargetPlayer: 0.95,
+    ballSpeed: 18,
   },
 };
 const DIFF_KEYS = ['easy', 'medium', 'hard', 'insane', 'impossible'];
@@ -398,10 +398,11 @@ let p2HasInput = false; // tracks if P2 has pressed any key during countdown
 
 // --- Abilities (Impossible mode only) ---
 let frameCount = 0;
+let screenShake = 0;
 // Ability definitions
 const ABILITIES = [
-  { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '2x hit power' },
-  { id: 'speed', label: 'Speed', icon: '⚡', color: '#66bb6a', key: '2', desc: '5s speed boost' },
+  { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '3x hit power' },
+  { id: 'doublejump', label: 'Dbl Jump', icon: '⬆️', color: '#66bb6a', key: '2', desc: 'Air jump' },
   { id: 'multiball', label: 'Multiball', icon: '🔴', color: '#e53935', key: '3', desc: 'Extra ball' },
 ];
 
@@ -447,9 +448,9 @@ function createPlayer(index, x, playerNum) {
     hitAnim: 0,
     // Abilities (Impossible mode)
     hasIronFist: false,
-    speedBoostTimer: 0,
+    hasDoubleJump: false,
     // Track which abilities are still available (one-time use)
-    abilityAvailable: { ironfist: true, speed: true, multiball: true },
+    abilityAvailable: { ironfist: true, doublejump: true, multiball: true },
   };
 }
 
@@ -584,9 +585,7 @@ function updatePlayer(p) {
 }
 
 function updateHuman(p) {
-  // Speed Boost power-up
-  const speed = p.speedBoostTimer > 0 ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
-  if (p.speedBoostTimer > 0) p.speedBoostTimer--;
+  const speed = PLAYER_SPEED;
 
   // Ability activation (Impossible mode only, keys 1/2/3)
   if (currentDifficulty === DIFFICULTIES.impossible && p.alive) {
@@ -595,9 +594,9 @@ function updateHuman(p) {
       p.abilityAvailable.ironfist = false;
       spawnAbilityParticles(p.x, p.y, '#ff9800');
     }
-    if (justPressed['Digit2'] && p.abilityAvailable.speed && p.speedBoostTimer <= 0) {
-      p.speedBoostTimer = 300;
-      p.abilityAvailable.speed = false;
+    if (justPressed['Digit2'] && p.abilityAvailable.doublejump && !p.hasDoubleJump) {
+      p.hasDoubleJump = true;
+      p.abilityAvailable.doublejump = false;
       spawnAbilityParticles(p.x, p.y, '#66bb6a');
     }
     if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
@@ -619,7 +618,10 @@ function updateHuman(p) {
     // Public mode P1: WASD + Space only
     if (keys['KeyA']) { p.x -= speed; p.facing = -1; }
     if (keys['KeyD']) { p.x += speed; p.facing = 1; }
-    if (justPressed['KeyW'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (justPressed['KeyW']) {
+      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
+    }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -627,7 +629,10 @@ function updateHuman(p) {
     // Public mode P2: Arrows + Enter
     if (keys['ArrowLeft']) { p.x -= speed; p.facing = -1; }
     if (keys['ArrowRight']) { p.x += speed; p.facing = 1; }
-    if (justPressed['ArrowUp'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (justPressed['ArrowUp']) {
+      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
+    }
     if (keys['Enter'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -635,7 +640,10 @@ function updateHuman(p) {
     // Solo mode: both WASD and Arrows work
     if (keys['ArrowLeft'] || keys['KeyA']) { p.x -= speed; p.facing = -1; }
     if (keys['ArrowRight'] || keys['KeyD']) { p.x += speed; p.facing = 1; }
-    if ((justPressed['ArrowUp'] || justPressed['KeyW']) && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+    if (justPressed['ArrowUp'] || justPressed['KeyW']) {
+      if (p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
+      else if (p.hasDoubleJump) { p.vy = JUMP_VEL; p.hasDoubleJump = false; spawnAbilityParticles(p.x, p.y + p.h / 2, '#66bb6a'); }
+    }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
@@ -652,15 +660,11 @@ function updateAI(p) {
   // but keeps moving in their chosen direction every frame
   const canThink = (p.aiTimer % p.aiThinkInterval) === 0;
 
-  // Speed Boost power-up for AI
-  if (p.speedBoostTimer > 0) p.speedBoostTimer--;
-
   const dx = ball.x - p.x;
   const dy = ball.y - p.y;
   const distToBall = Math.sqrt(dx * dx + dy * dy);
   const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-  const speedMult = p.speedBoostTimer > 0 ? 1.5 : 1;
-  const aiSpeed = PLAYER_SPEED * p.aiSpeedMult * speedMult;
+  const aiSpeed = PLAYER_SPEED * p.aiSpeedMult;
 
   // Is ball coming at me?
   const ballHeadingToMe = ball.dangerous && ballSpeed > 2 &&
@@ -735,26 +739,31 @@ function updateAI(p) {
 function hitBallObj(p, b) {
   // Hit in facing direction — keep ball low (gaga ball is a ground game)
   let hitSpeed = currentDifficulty.ballSpeed;
-  // Iron Fist power-up: 2x hit speed, then consumed
+  // Iron Fist power-up: 3x hit speed + piercing hit, then consumed
+  let ironFistActive = false;
   if (p.hasIronFist) {
-    hitSpeed *= 2;
+    hitSpeed *= 3;
+    ironFistActive = true;
     p.hasIronFist = false;
-    for (let i = 0; i < 8; i++) {
+    // Big orange explosion burst
+    for (let i = 0; i < 18; i++) {
       const angle = Math.random() * Math.PI * 2;
-      const spd = 2 + Math.random() * 3;
+      const spd = 3 + Math.random() * 5;
       particles.push({
         x: b.x, y: b.y,
         vx: Math.cos(angle) * spd,
-        vy: Math.sin(angle) * spd - 1,
-        life: 15 + Math.random() * 15,
-        maxLife: 30,
-        color: '#ff9800',
-        radius: 2 + Math.random() * 3,
+        vy: Math.sin(angle) * spd - 2,
+        life: 20 + Math.random() * 20,
+        maxLife: 40,
+        color: i % 2 === 0 ? '#ff9800' : '#ff5722',
+        radius: 3 + Math.random() * 4,
       });
     }
+    // Screen shake
+    screenShake = 8;
   }
   b.vx = p.facing * hitSpeed;
-  b.vy = -2;
+  b.vy = ironFistActive ? -1 : -2; // Iron Fist keeps ball low and fast
   b.dangerous = true;
   b.lastHitBy = p;
   b.bounced = false;
@@ -983,7 +992,7 @@ function drawAbilityHUD() {
 
     const available = human.abilityAvailable[ab.id];
     const active = (ab.id === 'ironfist' && human.hasIronFist) ||
-                   (ab.id === 'speed' && human.speedBoostTimer > 0);
+                   (ab.id === 'doublejump' && human.hasDoubleJump);
     const used = !available && !active;
 
     // Box background
@@ -1025,18 +1034,6 @@ function drawAbilityHUD() {
       ctx.font = 'bold 10px sans-serif';
       ctx.fillStyle = used ? 'rgba(255,255,255,0.15)' : (active ? ab.color : 'rgba(255,255,255,0.45)');
       ctx.fillText(`[${ab.key}]`, x, y + 42);
-    }
-
-    // Speed boost timer bar
-    if (ab.id === 'speed' && human.speedBoostTimer > 0) {
-      const barW2 = boxW - 8;
-      const barH2 = 3;
-      const barX2 = x - barW2 / 2;
-      const barY2 = y + boxH - 6;
-      ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.fillRect(barX2, barY2, barW2, barH2);
-      ctx.fillStyle = ab.color;
-      ctx.fillRect(barX2, barY2, barW2 * (human.speedBoostTimer / 300), barH2);
     }
 
     // "USED" X overlay
@@ -1208,17 +1205,15 @@ function drawPlayer(p) {
     ctx.fill();
   }
 
-  // Speed Boost trail
-  if (p.speedBoostTimer > 0 && Math.abs(p.vx) > 0.3) {
-    for (let i = 1; i <= 3; i++) {
-      const trailAlpha = (0.25 - i * 0.07);
-      ctx.globalAlpha = trailAlpha;
-      ctx.beginPath();
-      ctx.arc(p.x - p.vx * i * 3, footY - p.h * 0.3, 4, 0, Math.PI * 2);
-      ctx.fillStyle = '#66bb6a';
-      ctx.fill();
-    }
-    ctx.globalAlpha = 1;
+  // Double Jump glow under feet
+  if (p.hasDoubleJump) {
+    const djGlow = ctx.createRadialGradient(p.x, footY, 2, p.x, footY, 14);
+    djGlow.addColorStop(0, 'rgba(102, 187, 106, 0.5)');
+    djGlow.addColorStop(1, 'rgba(102, 187, 106, 0)');
+    ctx.beginPath();
+    ctx.arc(p.x, footY, 14, 0, Math.PI * 2);
+    ctx.fillStyle = djGlow;
+    ctx.fill();
   }
 
   // Name tag
@@ -1339,7 +1334,7 @@ function drawHUD() {
     if (gameMode === 'public') {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
     } else if (currentDifficulty === DIFFICULTIES.impossible) {
-      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Speed  3: Multiball', W / 2, H - 10);
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Dbl Jump  3: Multiball', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
@@ -1643,6 +1638,16 @@ function gameLoop() {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, W, H);
 
+  // Screen shake effect (Iron Fist)
+  ctx.save();
+  if (screenShake > 0) {
+    const shakeX = (Math.random() - 0.5) * screenShake * 2;
+    const shakeY = (Math.random() - 0.5) * screenShake * 2;
+    ctx.translate(shakeX, shakeY);
+    screenShake *= 0.8;
+    if (screenShake < 0.5) screenShake = 0;
+  }
+
   drawArena();
 
   switch (gameState) {
@@ -1799,6 +1804,9 @@ function gameLoop() {
 
   // Update touch UI
   updateTouchUI();
+
+  // End screen shake transform
+  ctx.restore();
 
   // Clear justPressed at end of frame
   for (const k in justPressed) justPressed[k] = false;
