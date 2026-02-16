@@ -134,6 +134,7 @@ canvas {
     <div class="ability-row" id="ability-buttons" style="display:none;flex-direction:row;gap:6px;margin-bottom:6px">
       <button class="touch-btn ability-btn" id="btn-ability-1" style="width:48px;height:48px;font-size:18px;border-color:rgba(255,152,0,0.6);background:rgba(255,152,0,0.12)">👊</button>
       <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⚡</button>
+      <button class="touch-btn ability-btn" id="btn-ability-3" style="width:48px;height:48px;font-size:18px;border-color:rgba(229,57,53,0.6);background:rgba(229,57,53,0.12)">🔴</button>
     </div>
     <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
     <button class="touch-btn hit-btn" id="btn-hit">HIT</button>
@@ -224,6 +225,7 @@ setupTouchButton('btn-jump', 'ArrowUp');
 setupTouchButton('btn-hit', 'Space');
 setupTouchButton('btn-ability-1', 'Digit1');
 setupTouchButton('btn-ability-2', 'Digit2');
+setupTouchButton('btn-ability-3', 'Digit3');
 
 // Touch menu helper — creates tappable buttons for menu screens
 function updateTouchMenu() {
@@ -272,9 +274,9 @@ function updateTouchUI() {
     if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
       const human = players.find(p => p.playerNum === 1 && p.alive);
       if (human) {
-        const ids = ['ironfist', 'speed'];
-        const btnIds = ['btn-ability-1', 'btn-ability-2'];
-        for (let i = 0; i < 2; i++) {
+        const ids = ['ironfist', 'speed', 'multiball'];
+        const btnIds = ['btn-ability-1', 'btn-ability-2', 'btn-ability-3'];
+        for (let i = 0; i < 3; i++) {
           const btn = document.getElementById(btnIds[i]);
           if (btn) btn.style.opacity = human.abilityAvailable[ids[i]] ? '1' : '0.3';
         }
@@ -385,6 +387,7 @@ let gameState = 'title'; // title, mode, menu, countdown, playing, gameover
 let countdownTimer = 0;
 let players = [];
 let ball = null;
+let extraBalls = [];
 let particles = [];
 let prevAlive = [];
 let gagaBounceCount = 0;
@@ -399,6 +402,7 @@ let frameCount = 0;
 const ABILITIES = [
   { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '2x hit power' },
   { id: 'speed', label: 'Speed', icon: '⚡', color: '#66bb6a', key: '2', desc: '5s speed boost' },
+  { id: 'multiball', label: 'Multiball', icon: '🔴', color: '#e53935', key: '3', desc: 'Extra ball' },
 ];
 
 // --- Colors ---
@@ -445,7 +449,7 @@ function createPlayer(index, x, playerNum) {
     hasIronFist: false,
     speedBoostTimer: 0,
     // Track which abilities are still available (one-time use)
-    abilityAvailable: { ironfist: true, speed: true },
+    abilityAvailable: { ironfist: true, speed: true, multiball: true },
   };
 }
 
@@ -497,6 +501,7 @@ function initGame() {
   ball.vy = 0;
   ball.vx = 0;
   particles = [];
+  extraBalls = [];
   frameCount = 0;
   gameState = 'countdown';
   countdownTimer = 0;
@@ -594,6 +599,19 @@ function updateHuman(p) {
       p.speedBoostTimer = 300;
       p.abilityAvailable.speed = false;
       spawnAbilityParticles(p.x, p.y, '#66bb6a');
+    }
+    if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
+      p.abilityAvailable.multiball = false;
+      // Spawn an extra ball from above
+      const eb = createBall();
+      eb.x = p.x;
+      eb.y = ARENA.top + 30;
+      eb.vx = (Math.random() - 0.5) * 6;
+      eb.vy = 2;
+      eb.dangerous = false;
+      eb.life = 600; // lasts 10 seconds
+      extraBalls.push(eb);
+      spawnAbilityParticles(p.x, p.y, '#e53935');
     }
   }
 
@@ -714,43 +732,54 @@ function updateAI(p) {
   }
 }
 
-function tryHitBall(p) {
-  if (!ball || !p.canHitBall) return;
-  const dx = ball.x - p.x;
-  const dy = ball.y - (p.y - 5);
-  const d = Math.sqrt(dx * dx + dy * dy);
-  if (d < HIT_RANGE) {
-    // Hit in facing direction — keep ball low (gaga ball is a ground game)
-    let hitSpeed = currentDifficulty.ballSpeed;
-    // Iron Fist power-up: 2x hit speed, then consumed
-    if (p.hasIronFist) {
-      hitSpeed *= 2;
-      p.hasIronFist = false;
-      // Orange burst particles on iron fist hit
-      for (let i = 0; i < 8; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const spd = 2 + Math.random() * 3;
-        particles.push({
-          x: ball.x, y: ball.y,
-          vx: Math.cos(angle) * spd,
-          vy: Math.sin(angle) * spd - 1,
-          life: 15 + Math.random() * 15,
-          maxLife: 30,
-          color: '#ff9800',
-          radius: 2 + Math.random() * 3,
-        });
-      }
+function hitBallObj(p, b) {
+  // Hit in facing direction — keep ball low (gaga ball is a ground game)
+  let hitSpeed = currentDifficulty.ballSpeed;
+  // Iron Fist power-up: 2x hit speed, then consumed
+  if (p.hasIronFist) {
+    hitSpeed *= 2;
+    p.hasIronFist = false;
+    for (let i = 0; i < 8; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const spd = 2 + Math.random() * 3;
+      particles.push({
+        x: b.x, y: b.y,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd - 1,
+        life: 15 + Math.random() * 15,
+        maxLife: 30,
+        color: '#ff9800',
+        radius: 2 + Math.random() * 3,
+      });
     }
-    ball.vx = p.facing * hitSpeed;
-    ball.vy = -2;  // tiny upward pop, stays near ground level
-    ball.dangerous = true;
-    ball.lastHitBy = p;
-    ball.bounced = false;
-    ball.glowIntensity = 1;
-
-    for (const pl of players) pl.canHitBall = true;
-    p.canHitBall = false;
   }
+  b.vx = p.facing * hitSpeed;
+  b.vy = -2;
+  b.dangerous = true;
+  b.lastHitBy = p;
+  b.bounced = false;
+  b.glowIntensity = 1;
+
+  for (const pl of players) pl.canHitBall = true;
+  p.canHitBall = false;
+}
+
+function tryHitBall(p) {
+  if (!p.canHitBall) return;
+  // Find the closest ball in range (main + extras)
+  let closest = null;
+  let closestDist = Infinity;
+  const allBalls = ball ? [ball, ...extraBalls] : [...extraBalls];
+  for (const b of allBalls) {
+    const dx = b.x - p.x;
+    const dy = b.y - (p.y - 5);
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < HIT_RANGE && d < closestDist) {
+      closest = b;
+      closestDist = d;
+    }
+  }
+  if (closest) hitBallObj(p, closest);
 }
 
 function updateBall() {
@@ -818,6 +847,66 @@ function updateBall() {
         ball.dangerous = false;
         ball.glowIntensity = 0;
         break;
+      }
+    }
+  }
+}
+
+function updateExtraBalls() {
+  for (let i = extraBalls.length - 1; i >= 0; i--) {
+    const b = extraBalls[i];
+    // Lifetime
+    b.life--;
+    if (b.life <= 0) {
+      // Fade out particles
+      spawnParticles(b.x, b.y, '#e53935');
+      extraBalls.splice(i, 1);
+      continue;
+    }
+    // Physics (same as main ball)
+    b.vy += GRAVITY;
+    b.x += b.vx;
+    b.y += b.vy;
+    b.vx *= BALL_FRICTION_X;
+    b.glowIntensity *= 0.97;
+
+    if (b.y + b.radius >= ARENA.floor) {
+      b.y = ARENA.floor - b.radius;
+      b.vy = -Math.abs(b.vy) * BALL_BOUNCE;
+      b.vx *= BALL_FRICTION_FLOOR;
+      if (Math.abs(b.vy) < 1.5) b.vy = 0;
+      b.bounced = true;
+      b.glowIntensity = Math.min(b.glowIntensity + 0.2, 1);
+    }
+    if (b.x - b.radius < ARENA.left) {
+      b.x = ARENA.left + b.radius;
+      b.vx = Math.abs(b.vx) * 0.85;
+      b.bounced = true;
+    }
+    if (b.x + b.radius > ARENA.right) {
+      b.x = ARENA.right - b.radius;
+      b.vx = -Math.abs(b.vx) * 0.85;
+      b.bounced = true;
+    }
+    const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (speed < BALL_MIN_SPEED && b.y + b.radius >= ARENA.floor - 1) {
+      b.vx = 0; b.vy = 0; b.dangerous = false;
+    }
+    // Elimination
+    if (b.dangerous) {
+      for (const p of players) {
+        if (!p.alive) continue;
+        if (b.lastHitBy === p && !b.bounced) continue;
+        const kneeY = p.y + p.h * 0.15;
+        const feetY = p.y + p.h / 2;
+        const legRect = { left: p.x - p.w / 2 - 2, right: p.x + p.w / 2 + 2, top: kneeY, bottom: feetY };
+        if (circleRectOverlap(b.x, b.y, b.radius, legRect)) {
+          p.alive = false;
+          spawnParticles(p.x, feetY, p.color);
+          b.vx *= 0.3; b.vy *= 0.3;
+          b.dangerous = false; b.glowIntensity = 0;
+          break;
+        }
       }
     }
   }
@@ -1175,6 +1264,42 @@ function drawBall() {
   ctx.fill();
 }
 
+function drawBallObj(b) {
+  // Flicker when about to expire
+  if (b.life !== undefined && b.life < 120 && Math.floor(b.life / 8) % 2 === 0) {
+    ctx.globalAlpha = 0.4;
+  }
+  // Glow
+  if (b.dangerous && b.glowIntensity > 0.1) {
+    const g = ctx.createRadialGradient(b.x, b.y, b.radius, b.x, b.y, b.radius + 25 * b.glowIntensity);
+    g.addColorStop(0, `rgba(229, 57, 53, ${b.glowIntensity * 0.4})`);
+    g.addColorStop(1, 'rgba(229, 57, 53, 0)');
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.radius + 25 * b.glowIntensity, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+  // Shadow
+  ctx.beginPath();
+  ctx.ellipse(b.x, ARENA.floor, b.radius * 0.8, 3, 0, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  ctx.fill();
+  // Ball (red tint for extra balls)
+  ctx.beginPath();
+  ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
+  ctx.fillStyle = b.dangerous ? '#e53935' : '#ef9a9a';
+  ctx.fill();
+  ctx.strokeStyle = b.dangerous ? '#b71c1c' : '#e57373';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  // Highlight
+  ctx.beginPath();
+  ctx.arc(b.x - 3, b.y - 3, b.radius * 0.3, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.fill();
+  ctx.globalAlpha = 1;
+}
+
 function drawParticles() {
   for (const p of particles) {
     const alpha = p.life / p.maxLife;
@@ -1214,7 +1339,7 @@ function drawHUD() {
     if (gameMode === 'public') {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
     } else if (currentDifficulty === DIFFICULTIES.impossible) {
-      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Iron Fist  2: Speed', W / 2, H - 10);
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Speed  3: Multiball', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
@@ -1637,6 +1762,7 @@ function gameLoop() {
       frameCount++;
       for (const p of players) updatePlayer(p);
       updateBall();
+      updateExtraBalls();
       updateParticles();
       checkGameOver();
 
@@ -1648,6 +1774,7 @@ function gameLoop() {
         if (p.alive) drawPlayer(p);
       }
       drawBall();
+      for (const eb of extraBalls) drawBallObj(eb);
       drawParticles();
       drawHUD();
       drawAbilityHUD();
