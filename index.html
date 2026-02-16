@@ -267,17 +267,21 @@ function updateTouchUI() {
   // Show/hide ability buttons for touch on Impossible mode
   const abilityBtns = document.getElementById('ability-buttons');
   if (abilityBtns) {
-    abilityBtns.style.display = (isPlaying && currentDifficulty === DIFFICULTIES.impossible) ? 'flex' : 'none';
-    // Grey out used abilities
-    if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
+    const showAbilities = isPlaying && (currentDifficulty === DIFFICULTIES.impossible || currentDifficulty === DIFFICULTIES.insane);
+    abilityBtns.style.display = showAbilities ? 'flex' : 'none';
+    // Show/hide and grey out abilities based on mode
+    if (showAbilities) {
       const human = players.find(p => p.playerNum === 1 && p.alive);
-      if (human) {
-        const ids = ['ironfist', 'multiball'];
-        const btnIds = ['btn-ability-1', 'btn-ability-2'];
-        for (let i = 0; i < 2; i++) {
-          const btn = document.getElementById(btnIds[i]);
-          if (btn) btn.style.opacity = human.abilityAvailable[ids[i]] ? '1' : '0.3';
-        }
+      const btn1 = document.getElementById('btn-ability-1');
+      const btn2 = document.getElementById('btn-ability-2');
+      if (currentDifficulty === DIFFICULTIES.insane) {
+        // Insane: only multiball on button 1
+        if (btn1) { btn1.style.display = 'inline-block'; btn1.textContent = '🔴'; btn1.style.opacity = human && human.abilityAvailable.multiball ? '1' : '0.3'; }
+        if (btn2) btn2.style.display = 'none';
+      } else {
+        // Impossible: both abilities
+        if (btn1) { btn1.style.display = 'inline-block'; btn1.textContent = '👊'; btn1.style.opacity = human && human.abilityAvailable.ironfist ? '1' : '0.3'; }
+        if (btn2) { btn2.style.display = 'inline-block'; btn2.style.opacity = human && human.abilityAvailable.multiball ? '1' : '0.3'; }
       }
     }
   }
@@ -443,9 +447,12 @@ function createPlayer(index, x, playerNum) {
     // Animation
     walkFrame: 0,
     hitAnim: 0,
-    // Abilities (Impossible mode)
+    // Abilities (Insane + Impossible mode)
     // Track which abilities are still available (one-time use)
-    abilityAvailable: { ironfist: true, multiball: true },
+    abilityAvailable: {
+      ironfist: diff === DIFFICULTIES.impossible,
+      multiball: diff === DIFFICULTIES.impossible || diff === DIFFICULTIES.insane,
+    },
   };
 }
 
@@ -582,9 +589,11 @@ function updatePlayer(p) {
 function updateHuman(p) {
   const speed = PLAYER_SPEED;
 
-  // Ability activation (Impossible mode only, keys 1/2/3)
-  if (currentDifficulty === DIFFICULTIES.impossible && p.alive) {
-    if (justPressed['Digit1'] && p.abilityAvailable.ironfist) {
+  // Ability activation
+  const hasAbilities = currentDifficulty === DIFFICULTIES.impossible || currentDifficulty === DIFFICULTIES.insane;
+  if (hasAbilities && p.alive) {
+    // Iron Fist — Impossible only
+    if (currentDifficulty === DIFFICULTIES.impossible && justPressed['Digit1'] && p.abilityAvailable.ironfist) {
       p.abilityAvailable.ironfist = false;
       // Instantly eliminate a random alive player (not you)
       const targets = players.filter(o => o !== p && o.alive);
@@ -609,7 +618,9 @@ function updateHuman(p) {
         screenShake = 8;
       }
     }
-    if (justPressed['Digit2'] && p.abilityAvailable.multiball) {
+    // Multiball — Insane + Impossible
+    const multiballKey = currentDifficulty === DIFFICULTIES.insane ? 'Digit1' : 'Digit2';
+    if (justPressed[multiballKey] && p.abilityAvailable.multiball) {
       p.abilityAvailable.multiball = false;
       // Spawn 3 extra balls in a fan spread — already dangerous
       for (let bi = 0; bi < 3; bi++) {
@@ -959,7 +970,7 @@ function spawnAbilityParticles(x, y, color) {
 }
 
 function drawAbilityHUD() {
-  if (currentDifficulty !== DIFFICULTIES.impossible) return;
+  if (currentDifficulty !== DIFFICULTIES.impossible && currentDifficulty !== DIFFICULTIES.insane) return;
   // Find the human player (P1)
   const human = players.find(p => p.playerNum === 1 && p.alive);
   if (!human) return;
@@ -972,9 +983,12 @@ function drawAbilityHUD() {
 
   ctx.textAlign = 'center';
 
-  for (let i = 0; i < ABILITIES.length; i++) {
-    const ab = ABILITIES[i];
-    const x = hudX - (ABILITIES.length - i) * (boxW + gap) + boxW / 2;
+  // Filter abilities for current mode
+  const visibleAbilities = ABILITIES.filter(ab => human.abilityAvailable[ab.id] !== undefined && (ab.id !== 'ironfist' || currentDifficulty === DIFFICULTIES.impossible));
+
+  for (let i = 0; i < visibleAbilities.length; i++) {
+    const ab = visibleAbilities[i];
+    const x = hudX - (visibleAbilities.length - i) * (boxW + gap) + boxW / 2;
     const y = hudY;
 
     const available = human.abilityAvailable[ab.id];
@@ -1297,6 +1311,8 @@ function drawHUD() {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
     } else if (currentDifficulty === DIFFICULTIES.impossible) {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Fist  2: Multiball', W / 2, H - 10);
+    } else if (currentDifficulty === DIFFICULTIES.insane) {
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Multiball', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
