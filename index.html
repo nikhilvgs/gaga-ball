@@ -512,7 +512,7 @@ function initGame() {
   particles = [];
   extraBalls = [];
   stunBalls = [];
-  stunSpawnTimer = 0;
+  stunSpawnTimer = STUN_RESPAWN_TIME; // spawn first stun ball immediately
   frameCount = 0;
   gameState = 'countdown';
   countdownTimer = 0;
