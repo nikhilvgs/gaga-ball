@@ -22,10 +22,122 @@ canvas {
   max-width: 100vw;
   object-fit: contain;
 }
+#touch-controls {
+  display: none;
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 15px 20px;
+  z-index: 10;
+  pointer-events: none;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+#touch-controls.visible { display: flex; }
+.touch-group {
+  display: flex;
+  gap: 10px;
+  pointer-events: auto;
+}
+.touch-group.right-group {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.touch-btn {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.7);
+  font-size: 22px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.touch-btn:active, .touch-btn.pressed {
+  background: rgba(255,255,255,0.3);
+  border-color: rgba(255,255,255,0.7);
+}
+.touch-btn.hit-btn {
+  width: 80px;
+  height: 80px;
+  font-size: 16px;
+  border-color: rgba(255,87,34,0.6);
+  background: rgba(255,87,34,0.15);
+}
+.touch-btn.hit-btn:active, .touch-btn.hit-btn.pressed {
+  background: rgba(255,87,34,0.4);
+  border-color: rgba(255,87,34,0.9);
+}
+.touch-btn.jump-btn {
+  width: 64px;
+  height: 64px;
+  border-color: rgba(76,175,80,0.6);
+  background: rgba(76,175,80,0.12);
+}
+.touch-btn.jump-btn:active, .touch-btn.jump-btn.pressed {
+  background: rgba(76,175,80,0.35);
+  border-color: rgba(76,175,80,0.9);
+}
+#touch-menu {
+  display: none;
+  position: fixed;
+  bottom: 30px;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  pointer-events: none;
+  text-align: center;
+}
+#touch-menu.visible { display: block; }
+.menu-touch-btn {
+  padding: 14px 32px;
+  margin: 6px;
+  border-radius: 12px;
+  border: 2px solid rgba(255,255,255,0.4);
+  background: rgba(255,255,255,0.1);
+  color: rgba(255,255,255,0.8);
+  font-size: 17px;
+  font-weight: bold;
+  font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  pointer-events: auto;
+  display: inline-block;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.menu-touch-btn:active { background: rgba(255,255,255,0.3); }
 </style>
 </head>
 <body>
 <canvas id="game"></canvas>
+
+<!-- Touch controls for gameplay -->
+<div id="touch-controls">
+  <div class="touch-group">
+    <button class="touch-btn" id="btn-left">&#9664;</button>
+    <button class="touch-btn" id="btn-right">&#9654;</button>
+  </div>
+  <div class="touch-group right-group">
+    <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
+    <button class="touch-btn hit-btn" id="btn-hit">HIT</button>
+  </div>
+</div>
+
+<!-- Touch buttons for menus -->
+<div id="touch-menu"></div>
 <script>
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -70,6 +182,100 @@ window.addEventListener('keydown', e => {
   }
 });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
+
+// --- Touch support ---
+let isTouchDevice = false;
+const touchControls = document.getElementById('touch-controls');
+const touchMenu = document.getElementById('touch-menu');
+
+// Detect touch device on first touch
+window.addEventListener('touchstart', () => { isTouchDevice = true; }, { once: true });
+
+// Map touch buttons to key codes
+function setupTouchButton(btnId, keyCode) {
+  const btn = document.getElementById(btnId);
+  btn.addEventListener('touchstart', e => {
+    e.preventDefault();
+    isTouchDevice = true;
+    if (!keys[keyCode]) justPressed[keyCode] = true;
+    keys[keyCode] = true;
+    btn.classList.add('pressed');
+  }, { passive: false });
+  btn.addEventListener('touchend', e => {
+    e.preventDefault();
+    keys[keyCode] = false;
+    btn.classList.remove('pressed');
+  }, { passive: false });
+  btn.addEventListener('touchcancel', e => {
+    keys[keyCode] = false;
+    btn.classList.remove('pressed');
+  });
+  // Prevent mouse events on touch buttons
+  btn.addEventListener('mousedown', e => e.preventDefault());
+}
+
+setupTouchButton('btn-left', 'ArrowLeft');
+setupTouchButton('btn-right', 'ArrowRight');
+setupTouchButton('btn-jump', 'ArrowUp');
+setupTouchButton('btn-hit', 'Space');
+
+// Touch menu helper — creates tappable buttons for menu screens
+function updateTouchMenu() {
+  if (!isTouchDevice) { touchMenu.classList.remove('visible'); return; }
+
+  let html = '';
+  if (gameState === 'title') {
+    html = '<button class="menu-touch-btn" ontouchstart="justPressed[\'Enter\']=true;keys[\'Enter\']=true;setTimeout(()=>keys[\'Enter\']=false,50)">PLAY</button>';
+  } else if (gameState === 'mode') {
+    html = '<button class="menu-touch-btn" ontouchstart="selectedMode=0;justPressed[\'Enter\']=true;keys[\'Enter\']=true;setTimeout(()=>keys[\'Enter\']=false,50)">SOLO</button>';
+    html += '<button class="menu-touch-btn" ontouchstart="selectedMode=1;justPressed[\'Enter\']=true;keys[\'Enter\']=true;setTimeout(()=>keys[\'Enter\']=false,50)">PUBLIC</button>';
+    html += '<br><button class="menu-touch-btn" style="margin-top:8px;font-size:13px;padding:10px 20px;opacity:0.6" ontouchstart="justPressed[\'Escape\']=true;keys[\'Escape\']=true;setTimeout(()=>keys[\'Escape\']=false,50)">BACK</button>';
+  } else if (gameState === 'menu') {
+    DIFF_KEYS.forEach((k, i) => {
+      const d = DIFFICULTIES[k];
+      const sel = i === selectedDifficulty ? 'border-color:' + d.color + ';background:rgba(255,255,255,0.2)' : '';
+      html += `<button class="menu-touch-btn" style="${sel}" ontouchstart="selectedDifficulty=${i};justPressed['Enter']=true;keys['Enter']=true;setTimeout(()=>keys['Enter']=false,50)">${d.label}</button>`;
+    });
+    html += '<br><button class="menu-touch-btn" style="margin-top:8px;font-size:13px;padding:10px 20px;opacity:0.6" ontouchstart="justPressed[\'Escape\']=true;keys[\'Escape\']=true;setTimeout(()=>keys[\'Escape\']=false,50)">BACK</button>';
+  } else if (gameState === 'gameover') {
+    html = '<button class="menu-touch-btn" ontouchstart="justPressed[\'Enter\']=true;keys[\'Enter\']=true;setTimeout(()=>keys[\'Enter\']=false,50)">PLAY AGAIN</button>';
+  }
+
+  if (html) {
+    touchMenu.innerHTML = html;
+    touchMenu.classList.add('visible');
+  } else {
+    touchMenu.classList.remove('visible');
+  }
+}
+
+// Show/hide touch controls and menu based on game state
+let lastTouchState = '';
+function updateTouchUI() {
+  if (!isTouchDevice) {
+    touchControls.classList.remove('visible');
+    touchMenu.classList.remove('visible');
+    return;
+  }
+  const isPlaying = gameState === 'playing' || gameState === 'countdown';
+  if (isPlaying) {
+    touchControls.classList.add('visible');
+    touchMenu.classList.remove('visible');
+  } else {
+    touchControls.classList.remove('visible');
+    if (lastTouchState !== gameState) {
+      updateTouchMenu();
+    }
+  }
+  lastTouchState = gameState;
+}
+
+// Prevent double-tap zoom and other touch defaults on the page
+document.addEventListener('touchstart', e => {
+  if (e.target.tagName === 'CANVAS' || e.target.classList.contains('touch-btn') || e.target.classList.contains('menu-touch-btn')) {
+    e.preventDefault();
+  }
+}, { passive: false });
 
 // --- Difficulty & Mode settings ---
 const DIFFICULTIES = {
@@ -777,7 +983,7 @@ function drawHUD() {
   ctx.fillStyle = '#fff';
   ctx.fillText(`${alive.length} remaining`, W - 15, 22);
 
-  if (gameState === 'playing') {
+  if (gameState === 'playing' && !isTouchDevice) {
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
@@ -806,7 +1012,10 @@ function drawTitle() {
 
   ctx.font = '15px sans-serif';
   ctx.fillStyle = 'rgba(255,255,255,0.6)';
-  const instr = [
+  const instr = isTouchDevice ? [
+    'Use on-screen buttons to play',
+    'Hit opponents with the ball to eliminate them',
+  ] : [
     'A/D or Arrow Keys to move left/right',
     'W / Up to jump',
     'Space to hit the ball',
@@ -814,9 +1023,11 @@ function drawTitle() {
   ];
   instr.forEach((t, i) => ctx.fillText(t, W / 2, H / 2 + 10 + i * 26));
 
-  ctx.font = 'bold 22px sans-serif';
-  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
-  ctx.fillText('Press ENTER to Play', W / 2, H / 2 + 150);
+  if (!isTouchDevice) {
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+    ctx.fillText('Press ENTER to Play', W / 2, H / 2 + 150);
+  }
 }
 
 function drawModeSelect() {
@@ -888,17 +1099,19 @@ function drawModeSelect() {
     ctx.fillText(`[${i + 1}]`, x + cardW / 2, cardY + cardH - 15);
   }
 
-  ctx.font = '15px sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText('← → to select', W / 2, cardY + cardH + 50);
+  if (!isTouchDevice) {
+    ctx.font = '15px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('← → to select', W / 2, cardY + cardH + 50);
 
-  ctx.font = 'bold 20px sans-serif';
-  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
-  ctx.fillText('Press ENTER to Continue', W / 2, cardY + cardH + 90);
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+    ctx.fillText('Press ENTER to Continue', W / 2, cardY + cardH + 90);
 
-  ctx.font = '12px sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.fillText('ESC to go back', W / 2, H - 20);
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText('ESC to go back', W / 2, H - 20);
+  }
 }
 
 function drawMenu() {
@@ -985,20 +1198,22 @@ function drawMenu() {
     ctx.fillText(`[${i + 1}]`, x + cardW / 2, cardY + cardH - 12);
   }
 
-  // Instructions
-  ctx.font = '15px sans-serif';
-  ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(255,255,255,0.5)';
-  ctx.fillText('← → or 1-4 to select', W / 2, cardY + cardH + 50);
+  if (!isTouchDevice) {
+    // Instructions
+    ctx.font = '15px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.fillText('← → or 1-4 to select', W / 2, cardY + cardH + 50);
 
-  ctx.font = 'bold 20px sans-serif';
-  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
-  ctx.fillText('Press ENTER to Start', W / 2, cardY + cardH + 90);
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+    ctx.fillText('Press ENTER to Start', W / 2, cardY + cardH + 90);
 
-  // Back hint
-  ctx.font = '12px sans-serif';
-  ctx.fillStyle = 'rgba(255,255,255,0.3)';
-  ctx.fillText('ESC to go back', W / 2, H - 20);
+    // Back hint
+    ctx.font = '12px sans-serif';
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.fillText('ESC to go back', W / 2, H - 20);
+  }
 }
 
 function drawCountdown() {
@@ -1055,9 +1270,11 @@ function drawGameOver() {
     ctx.fillText('Better luck next time!', W / 2, H / 2 + 15);
   }
 
-  ctx.font = 'bold 20px sans-serif';
-  ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
-  ctx.fillText('Press ENTER to Play Again', W / 2, H / 2 + 70);
+  if (!isTouchDevice) {
+    ctx.font = 'bold 20px sans-serif';
+    ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
+    ctx.fillText('Press ENTER to Play Again', W / 2, H / 2 + 70);
+  }
 }
 
 // --- Game loop ---
@@ -1212,6 +1429,9 @@ function gameLoop() {
       if (justPressed['Enter']) initGame();
       break;
   }
+
+  // Update touch UI
+  updateTouchUI();
 
   // Clear justPressed at end of frame
   for (const k in justPressed) justPressed[k] = false;
