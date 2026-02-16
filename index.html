@@ -754,7 +754,9 @@ function hitBallObj(p, b) {
   b.glowIntensity = 1;
 
   for (const pl of players) pl.canHitBall = true;
-  p.canHitBall = false;
+  // In 1v1 (2 alive), allow unlimited hits
+  const aliveCount = players.filter(pl => pl.alive).length;
+  if (aliveCount > 2) p.canHitBall = false;
 }
 
 function tryHitBall(p) {
