@@ -131,6 +131,11 @@ canvas {
     <button class="touch-btn" id="btn-right">&#9654;</button>
   </div>
   <div class="touch-group right-group">
+    <div class="ability-row" id="ability-buttons" style="display:none;flex-direction:row;gap:6px;margin-bottom:6px">
+      <button class="touch-btn ability-btn" id="btn-ability-1" style="width:48px;height:48px;font-size:18px;border-color:rgba(255,152,0,0.6);background:rgba(255,152,0,0.12)">👊</button>
+      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(66,165,245,0.6);background:rgba(66,165,245,0.12)">🛡️</button>
+      <button class="touch-btn ability-btn" id="btn-ability-3" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⚡</button>
+    </div>
     <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
     <button class="touch-btn hit-btn" id="btn-hit">HIT</button>
   </div>
@@ -218,6 +223,9 @@ setupTouchButton('btn-left', 'ArrowLeft');
 setupTouchButton('btn-right', 'ArrowRight');
 setupTouchButton('btn-jump', 'ArrowUp');
 setupTouchButton('btn-hit', 'Space');
+setupTouchButton('btn-ability-1', 'Digit1');
+setupTouchButton('btn-ability-2', 'Digit2');
+setupTouchButton('btn-ability-3', 'Digit3');
 
 // Touch menu helper — creates tappable buttons for menu screens
 function updateTouchMenu() {
@@ -258,6 +266,23 @@ function updateTouchUI() {
     return;
   }
   const isPlaying = gameState === 'playing' || gameState === 'countdown';
+  // Show/hide ability buttons for touch on Impossible mode
+  const abilityBtns = document.getElementById('ability-buttons');
+  if (abilityBtns) {
+    abilityBtns.style.display = (isPlaying && currentDifficulty === DIFFICULTIES.impossible) ? 'flex' : 'none';
+    // Grey out used abilities
+    if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
+      const human = players.find(p => p.playerNum === 1 && p.alive);
+      if (human) {
+        const ids = ['ironfist', 'shield', 'speed'];
+        const btnIds = ['btn-ability-1', 'btn-ability-2', 'btn-ability-3'];
+        for (let i = 0; i < 3; i++) {
+          const btn = document.getElementById(btnIds[i]);
+          if (btn) btn.style.opacity = human.abilityAvailable[ids[i]] ? '1' : '0.3';
+        }
+      }
+    }
+  }
   if (isPlaying) {
     touchControls.classList.add('visible');
     touchMenu.classList.remove('visible');
@@ -335,8 +360,22 @@ const DIFFICULTIES = {
     aiTargetPlayer: 0.8,
     ballSpeed: 13,
   },
+  impossible: {
+    label: 'Impossible',
+    desc: 'You will not survive',
+    color: '#f44336',
+    aiCount: 5,
+    aiSpeedMult: 1.6,
+    aiThinkInterval: 1,
+    aiHitDelay: 0,
+    aiDodgeChance: 0.25,
+    aiJumpChance: 0.15,
+    aiHitAccuracy: 1.0,
+    aiTargetPlayer: 1.0,
+    ballSpeed: 17,
+  },
 };
-const DIFF_KEYS = ['easy', 'medium', 'hard', 'insane'];
+const DIFF_KEYS = ['easy', 'medium', 'hard', 'insane', 'impossible'];
 let selectedDifficulty = 1; // index into DIFF_KEYS
 let currentDifficulty = DIFFICULTIES.medium;
 
@@ -355,6 +394,15 @@ let gagaText = '';
 let gagaTextTimer = 0;
 let gagaBallCanBounce = true;
 let p2HasInput = false; // tracks if P2 has pressed any key during countdown
+
+// --- Abilities (Impossible mode only) ---
+let frameCount = 0;
+// Ability definitions
+const ABILITIES = [
+  { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '2x hit power' },
+  { id: 'shield', label: 'Shield', icon: '🛡️', color: '#42a5f5', key: '2', desc: 'Block 1 hit' },
+  { id: 'speed', label: 'Speed', icon: '⚡', color: '#66bb6a', key: '3', desc: '5s speed boost' },
+];
 
 // --- Colors ---
 const COLORS = ['#4fc3f7', '#ef5350', '#66bb6a', '#ffa726', '#ab47bc', '#ec407a'];
@@ -396,6 +444,12 @@ function createPlayer(index, x, playerNum) {
     // Animation
     walkFrame: 0,
     hitAnim: 0,
+    // Abilities (Impossible mode)
+    hasIronFist: false,
+    hasShield: false,
+    speedBoostTimer: 0,
+    // Track which abilities are still available (one-time use)
+    abilityAvailable: { ironfist: true, shield: true, speed: true },
   };
 }
 
@@ -447,6 +501,7 @@ function initGame() {
   ball.vy = 0;
   ball.vx = 0;
   particles = [];
+  frameCount = 0;
   gameState = 'countdown';
   countdownTimer = 0;
   gagaBounceCount = 0;
@@ -528,26 +583,49 @@ function updatePlayer(p) {
 }
 
 function updateHuman(p) {
+  // Speed Boost power-up
+  const speed = p.speedBoostTimer > 0 ? PLAYER_SPEED * 1.5 : PLAYER_SPEED;
+  if (p.speedBoostTimer > 0) p.speedBoostTimer--;
+
+  // Ability activation (Impossible mode only, keys 1/2/3)
+  if (currentDifficulty === DIFFICULTIES.impossible && p.alive) {
+    if (justPressed['Digit1'] && p.abilityAvailable.ironfist && !p.hasIronFist) {
+      p.hasIronFist = true;
+      p.abilityAvailable.ironfist = false;
+      spawnAbilityParticles(p.x, p.y, '#ff9800');
+    }
+    if (justPressed['Digit2'] && p.abilityAvailable.shield && !p.hasShield) {
+      p.hasShield = true;
+      p.abilityAvailable.shield = false;
+      spawnAbilityParticles(p.x, p.y, '#42a5f5');
+    }
+    if (justPressed['Digit3'] && p.abilityAvailable.speed && p.speedBoostTimer <= 0) {
+      p.speedBoostTimer = 300;
+      p.abilityAvailable.speed = false;
+      spawnAbilityParticles(p.x, p.y, '#66bb6a');
+    }
+  }
+
   if (p.playerNum === 1 && gameMode === 'public') {
     // Public mode P1: WASD + Space only
-    if (keys['KeyA']) { p.x -= PLAYER_SPEED; p.facing = -1; }
-    if (keys['KeyD']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if (keys['KeyA']) { p.x -= speed; p.facing = -1; }
+    if (keys['KeyD']) { p.x += speed; p.facing = 1; }
     if (justPressed['KeyW'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
   } else if (p.playerNum === 2) {
     // Public mode P2: Arrows + Enter
-    if (keys['ArrowLeft']) { p.x -= PLAYER_SPEED; p.facing = -1; }
-    if (keys['ArrowRight']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if (keys['ArrowLeft']) { p.x -= speed; p.facing = -1; }
+    if (keys['ArrowRight']) { p.x += speed; p.facing = 1; }
     if (justPressed['ArrowUp'] && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Enter'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
     }
   } else {
     // Solo mode: both WASD and Arrows work
-    if (keys['ArrowLeft'] || keys['KeyA']) { p.x -= PLAYER_SPEED; p.facing = -1; }
-    if (keys['ArrowRight'] || keys['KeyD']) { p.x += PLAYER_SPEED; p.facing = 1; }
+    if (keys['ArrowLeft'] || keys['KeyA']) { p.x -= speed; p.facing = -1; }
+    if (keys['ArrowRight'] || keys['KeyD']) { p.x += speed; p.facing = 1; }
     if ((justPressed['ArrowUp'] || justPressed['KeyW']) && p.onGround) { p.vy = JUMP_VEL; p.onGround = false; }
     if (keys['Space'] && p.hitCooldown <= 0) {
       tryHitBall(p); p.hitCooldown = HIT_COOLDOWN; p.hitAnim = 10;
@@ -565,11 +643,15 @@ function updateAI(p) {
   // but keeps moving in their chosen direction every frame
   const canThink = (p.aiTimer % p.aiThinkInterval) === 0;
 
+  // Speed Boost power-up for AI
+  if (p.speedBoostTimer > 0) p.speedBoostTimer--;
+
   const dx = ball.x - p.x;
   const dy = ball.y - p.y;
   const distToBall = Math.sqrt(dx * dx + dy * dy);
   const ballSpeed = Math.sqrt(ball.vx * ball.vx + ball.vy * ball.vy);
-  const aiSpeed = PLAYER_SPEED * p.aiSpeedMult;
+  const speedMult = p.speedBoostTimer > 0 ? 1.5 : 1;
+  const aiSpeed = PLAYER_SPEED * p.aiSpeedMult * speedMult;
 
   // Is ball coming at me?
   const ballHeadingToMe = ball.dangerous && ballSpeed > 2 &&
@@ -648,7 +730,26 @@ function tryHitBall(p) {
   const d = Math.sqrt(dx * dx + dy * dy);
   if (d < HIT_RANGE) {
     // Hit in facing direction — keep ball low (gaga ball is a ground game)
-    const hitSpeed = currentDifficulty.ballSpeed;
+    let hitSpeed = currentDifficulty.ballSpeed;
+    // Iron Fist power-up: 2x hit speed, then consumed
+    if (p.hasIronFist) {
+      hitSpeed *= 2;
+      p.hasIronFist = false;
+      // Orange burst particles on iron fist hit
+      for (let i = 0; i < 8; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 2 + Math.random() * 3;
+        particles.push({
+          x: ball.x, y: ball.y,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd - 1,
+          life: 15 + Math.random() * 15,
+          maxLife: 30,
+          color: '#ff9800',
+          radius: 2 + Math.random() * 3,
+        });
+      }
+    }
     ball.vx = p.facing * hitSpeed;
     ball.vy = -2;  // tiny upward pop, stays near ground level
     ball.dangerous = true;
@@ -719,6 +820,29 @@ function updateBall() {
       const feetY = p.y + p.h / 2;
       const legRect = { left: p.x - p.w / 2 - 2, right: p.x + p.w / 2 + 2, top: kneeY, bottom: feetY };
       if (circleRectOverlap(ball.x, ball.y, ball.radius, legRect)) {
+        // Shield power-up: absorb one hit
+        if (p.hasShield) {
+          p.hasShield = false;
+          ball.vx *= -0.4;
+          ball.vy = -3;
+          ball.dangerous = false;
+          ball.glowIntensity = 0;
+          // Blue shield break particles
+          for (let i = 0; i < 16; i++) {
+            const angle = Math.random() * Math.PI * 2;
+            const spd = 2 + Math.random() * 4;
+            particles.push({
+              x: p.x, y: p.y,
+              vx: Math.cos(angle) * spd,
+              vy: Math.sin(angle) * spd - 2,
+              life: 25 + Math.random() * 25,
+              maxLife: 50,
+              color: '#42a5f5',
+              radius: 2 + Math.random() * 4,
+            });
+          }
+          break;
+        }
         p.alive = false;
         spawnParticles(p.x, feetY, p.color);
         ball.vx *= 0.3;
@@ -761,6 +885,112 @@ function updateParticles() {
     p.y += p.vy;
     p.life--;
     if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
+// --- Abilities ---
+function spawnAbilityParticles(x, y, color) {
+  for (let i = 0; i < 10; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const spd = 1 + Math.random() * 3;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * spd,
+      vy: Math.sin(angle) * spd - 2,
+      life: 20 + Math.random() * 15,
+      maxLife: 35,
+      color,
+      radius: 2 + Math.random() * 3,
+    });
+  }
+}
+
+function drawAbilityHUD() {
+  if (currentDifficulty !== DIFFICULTIES.impossible) return;
+  // Find the human player (P1)
+  const human = players.find(p => p.playerNum === 1 && p.alive);
+  if (!human) return;
+
+  const hudX = W - 15;  // right-aligned
+  const hudY = 50;
+  const boxW = 44;
+  const boxH = 44;
+  const gap = 8;
+
+  ctx.textAlign = 'center';
+
+  for (let i = 0; i < ABILITIES.length; i++) {
+    const ab = ABILITIES[i];
+    const x = hudX - (ABILITIES.length - i) * (boxW + gap) + boxW / 2;
+    const y = hudY;
+
+    const available = human.abilityAvailable[ab.id];
+    const active = (ab.id === 'ironfist' && human.hasIronFist) ||
+                   (ab.id === 'shield' && human.hasShield) ||
+                   (ab.id === 'speed' && human.speedBoostTimer > 0);
+    const used = !available && !active;
+
+    // Box background
+    ctx.beginPath();
+    ctx.roundRect(x - boxW / 2, y, boxW, boxH, 6);
+    if (active) {
+      ctx.fillStyle = ab.color + '40';
+      ctx.fill();
+      ctx.strokeStyle = ab.color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      // Glow
+      ctx.shadowColor = ab.color;
+      ctx.shadowBlur = 10;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    } else if (available) {
+      ctx.fillStyle = 'rgba(255,255,255,0.08)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    } else {
+      // Used up
+      ctx.fillStyle = 'rgba(255,255,255,0.03)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    // Icon
+    ctx.globalAlpha = used ? 0.25 : 1;
+    ctx.font = '18px sans-serif';
+    ctx.fillText(ab.icon, x, y + 26);
+
+    // Key hint
+    if (!isTouchDevice) {
+      ctx.font = 'bold 10px sans-serif';
+      ctx.fillStyle = used ? 'rgba(255,255,255,0.15)' : (active ? ab.color : 'rgba(255,255,255,0.45)');
+      ctx.fillText(`[${ab.key}]`, x, y + 42);
+    }
+
+    // Speed boost timer bar
+    if (ab.id === 'speed' && human.speedBoostTimer > 0) {
+      const barW2 = boxW - 8;
+      const barH2 = 3;
+      const barX2 = x - barW2 / 2;
+      const barY2 = y + boxH - 6;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(barX2, barY2, barW2, barH2);
+      ctx.fillStyle = ab.color;
+      ctx.fillRect(barX2, barY2, barW2 * (human.speedBoostTimer / 300), barH2);
+    }
+
+    // "USED" X overlay
+    if (used) {
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.15)';
+      ctx.fillText('✕', x, y + 28);
+    }
+
+    ctx.globalAlpha = 1;
   }
 }
 
@@ -908,6 +1138,47 @@ function drawPlayer(p) {
   ctx.arc(p.x + p.facing * 7, headY + 4, 2, 0, Math.PI * 2);
   ctx.fill();
 
+  // --- Power-up visual indicators ---
+  // Shield aura
+  if (p.hasShield) {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.h * 0.65, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(66, 165, 245, 0.4)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    const shieldGlow = ctx.createRadialGradient(p.x, p.y, p.h * 0.3, p.x, p.y, p.h * 0.65);
+    shieldGlow.addColorStop(0, 'rgba(66, 165, 245, 0)');
+    shieldGlow.addColorStop(1, 'rgba(66, 165, 245, 0.12)');
+    ctx.fillStyle = shieldGlow;
+    ctx.fill();
+  }
+
+  // Iron Fist glow on front hand
+  if (p.hasIronFist) {
+    const handX = p.x + p.facing * 18 + (p.hitAnim > 0 ? p.facing * 12 : 0);
+    const handY = centerY - (p.hitAnim > 0 ? 12 : 4);
+    const fistGlow = ctx.createRadialGradient(handX, handY, 2, handX, handY, 12);
+    fistGlow.addColorStop(0, 'rgba(255, 152, 0, 0.6)');
+    fistGlow.addColorStop(1, 'rgba(255, 152, 0, 0)');
+    ctx.beginPath();
+    ctx.arc(handX, handY, 12, 0, Math.PI * 2);
+    ctx.fillStyle = fistGlow;
+    ctx.fill();
+  }
+
+  // Speed Boost trail
+  if (p.speedBoostTimer > 0 && Math.abs(p.vx) > 0.3) {
+    for (let i = 1; i <= 3; i++) {
+      const trailAlpha = (0.25 - i * 0.07);
+      ctx.globalAlpha = trailAlpha;
+      ctx.beginPath();
+      ctx.arc(p.x - p.vx * i * 3, footY - p.h * 0.3, 4, 0, Math.PI * 2);
+      ctx.fillStyle = '#66bb6a';
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   // Name tag
   ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center';
@@ -989,6 +1260,8 @@ function drawHUD() {
     ctx.fillStyle = 'rgba(255,255,255,0.3)';
     if (gameMode === 'public') {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
+    } else if (currentDifficulty === DIFFICULTIES.impossible) {
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Iron Fist  2: Shield  3: Speed', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
@@ -1040,12 +1313,13 @@ function drawModeSelect() {
   ctx.fillText('SELECT MODE', W / 2, 100);
 
   const modes = [
-    { label: 'Solo', desc: 'You vs AI opponents', icon: '1P', color: '#4fc3f7' },
-    { label: 'Public', desc: '2 players + AI on same keyboard', icon: '2P', color: '#66bb6a' },
+    { label: 'Solo', desc: 'You vs AI opponents', icon: '1P', color: '#4fc3f7', details: [] },
+    { label: 'Public', desc: '2 players on same device', icon: '2P', color: '#66bb6a',
+      details: isTouchDevice ? ['Share the screen!', 'P2 uses a keyboard'] : ['P1: A/D + W + Space', 'P2: Arrows + Enter'] },
   ];
 
   const cardW = 200;
-  const cardH = 200;
+  const cardH = 220;
   const gap = 40;
   const totalW = modes.length * cardW + (modes.length - 1) * gap;
   const startX = (W - totalW) / 2;
@@ -1093,6 +1367,15 @@ function drawModeSelect() {
     ctx.fillStyle = sel ? 'rgba(255,255,255,0.8)' : 'rgba(255,255,255,0.35)';
     ctx.fillText(m.desc, x + cardW / 2, cardY + 130);
 
+    // Control details (for Public mode)
+    if (m.details.length > 0) {
+      ctx.font = '11px sans-serif';
+      ctx.fillStyle = sel ? 'rgba(255,255,255,0.55)' : 'rgba(255,255,255,0.2)';
+      m.details.forEach((line, j) => {
+        ctx.fillText(line, x + cardW / 2, cardY + 152 + j * 16);
+      });
+    }
+
     // Key hint
     ctx.font = 'bold 14px sans-serif';
     ctx.fillStyle = sel ? 'rgba(255,255,255,0.4)' : 'rgba(255,255,255,0.15)';
@@ -1125,9 +1408,9 @@ function drawMenu() {
   ctx.fillText('SELECT DIFFICULTY', W / 2, 80);
 
   // Difficulty cards
-  const cardW = 160;
+  const cardW = 140;
   const cardH = 180;
-  const gap = 20;
+  const gap = 15;
   const totalW = DIFF_KEYS.length * cardW + (DIFF_KEYS.length - 1) * gap;
   const startX = (W - totalW) / 2;
   const cardY = 130;
@@ -1203,7 +1486,7 @@ function drawMenu() {
     ctx.font = '15px sans-serif';
     ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.fillText('← → or 1-4 to select', W / 2, cardY + cardH + 50);
+    ctx.fillText('← → or 1-5 to select', W / 2, cardY + cardH + 50);
 
     ctx.font = 'bold 20px sans-serif';
     ctx.fillStyle = `rgba(255,255,255,${0.5 + Math.sin(Date.now() / 400) * 0.3})`;
@@ -1315,6 +1598,7 @@ function gameLoop() {
       if (justPressed['Digit2']) selectedDifficulty = 1;
       if (justPressed['Digit3']) selectedDifficulty = 2;
       if (justPressed['Digit4']) selectedDifficulty = 3;
+      if (justPressed['Digit5']) selectedDifficulty = 4;
       if (justPressed['Enter']) initGame();
       if (justPressed['Escape']) gameState = 'mode';
       break;
@@ -1384,6 +1668,7 @@ function gameLoop() {
       for (const p of players) drawPlayer(p);
       drawBall();
       drawHUD();
+      drawAbilityHUD();
       drawCountdown();
       break;
 
@@ -1396,6 +1681,7 @@ function gameLoop() {
         prevAlive[i] = players[i].alive;
       }
 
+      frameCount++;
       for (const p of players) updatePlayer(p);
       updateBall();
       updateParticles();
@@ -1411,6 +1697,7 @@ function gameLoop() {
       drawBall();
       drawParticles();
       drawHUD();
+      drawAbilityHUD();
       break;
 
     case 'gameover':
