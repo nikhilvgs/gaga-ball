@@ -133,8 +133,7 @@ canvas {
   <div class="touch-group right-group">
     <div class="ability-row" id="ability-buttons" style="display:none;flex-direction:row;gap:6px;margin-bottom:6px">
       <button class="touch-btn ability-btn" id="btn-ability-1" style="width:48px;height:48px;font-size:18px;border-color:rgba(255,152,0,0.6);background:rgba(255,152,0,0.12)">👊</button>
-      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(66,165,245,0.6);background:rgba(66,165,245,0.12)">🛡️</button>
-      <button class="touch-btn ability-btn" id="btn-ability-3" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⚡</button>
+      <button class="touch-btn ability-btn" id="btn-ability-2" style="width:48px;height:48px;font-size:18px;border-color:rgba(102,187,106,0.6);background:rgba(102,187,106,0.12)">⚡</button>
     </div>
     <button class="touch-btn jump-btn" id="btn-jump">&#9650;</button>
     <button class="touch-btn hit-btn" id="btn-hit">HIT</button>
@@ -225,7 +224,6 @@ setupTouchButton('btn-jump', 'ArrowUp');
 setupTouchButton('btn-hit', 'Space');
 setupTouchButton('btn-ability-1', 'Digit1');
 setupTouchButton('btn-ability-2', 'Digit2');
-setupTouchButton('btn-ability-3', 'Digit3');
 
 // Touch menu helper — creates tappable buttons for menu screens
 function updateTouchMenu() {
@@ -274,9 +272,9 @@ function updateTouchUI() {
     if (isPlaying && currentDifficulty === DIFFICULTIES.impossible) {
       const human = players.find(p => p.playerNum === 1 && p.alive);
       if (human) {
-        const ids = ['ironfist', 'shield', 'speed'];
-        const btnIds = ['btn-ability-1', 'btn-ability-2', 'btn-ability-3'];
-        for (let i = 0; i < 3; i++) {
+        const ids = ['ironfist', 'speed'];
+        const btnIds = ['btn-ability-1', 'btn-ability-2'];
+        for (let i = 0; i < 2; i++) {
           const btn = document.getElementById(btnIds[i]);
           if (btn) btn.style.opacity = human.abilityAvailable[ids[i]] ? '1' : '0.3';
         }
@@ -365,14 +363,14 @@ const DIFFICULTIES = {
     desc: 'You will not survive',
     color: '#f44336',
     aiCount: 5,
-    aiSpeedMult: 1.6,
-    aiThinkInterval: 1,
-    aiHitDelay: 0,
-    aiDodgeChance: 0.25,
-    aiJumpChance: 0.15,
-    aiHitAccuracy: 1.0,
-    aiTargetPlayer: 1.0,
-    ballSpeed: 17,
+    aiSpeedMult: 1.35,
+    aiThinkInterval: 2,
+    aiHitDelay: 1,
+    aiDodgeChance: 0.18,
+    aiJumpChance: 0.12,
+    aiHitAccuracy: 0.95,
+    aiTargetPlayer: 0.85,
+    ballSpeed: 14,
   },
 };
 const DIFF_KEYS = ['easy', 'medium', 'hard', 'insane', 'impossible'];
@@ -400,8 +398,7 @@ let frameCount = 0;
 // Ability definitions
 const ABILITIES = [
   { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '2x hit power' },
-  { id: 'shield', label: 'Shield', icon: '🛡️', color: '#42a5f5', key: '2', desc: 'Block 1 hit' },
-  { id: 'speed', label: 'Speed', icon: '⚡', color: '#66bb6a', key: '3', desc: '5s speed boost' },
+  { id: 'speed', label: 'Speed', icon: '⚡', color: '#66bb6a', key: '2', desc: '5s speed boost' },
 ];
 
 // --- Colors ---
@@ -446,10 +443,9 @@ function createPlayer(index, x, playerNum) {
     hitAnim: 0,
     // Abilities (Impossible mode)
     hasIronFist: false,
-    hasShield: false,
     speedBoostTimer: 0,
     // Track which abilities are still available (one-time use)
-    abilityAvailable: { ironfist: true, shield: true, speed: true },
+    abilityAvailable: { ironfist: true, speed: true },
   };
 }
 
@@ -594,12 +590,7 @@ function updateHuman(p) {
       p.abilityAvailable.ironfist = false;
       spawnAbilityParticles(p.x, p.y, '#ff9800');
     }
-    if (justPressed['Digit2'] && p.abilityAvailable.shield && !p.hasShield) {
-      p.hasShield = true;
-      p.abilityAvailable.shield = false;
-      spawnAbilityParticles(p.x, p.y, '#42a5f5');
-    }
-    if (justPressed['Digit3'] && p.abilityAvailable.speed && p.speedBoostTimer <= 0) {
+    if (justPressed['Digit2'] && p.abilityAvailable.speed && p.speedBoostTimer <= 0) {
       p.speedBoostTimer = 300;
       p.abilityAvailable.speed = false;
       spawnAbilityParticles(p.x, p.y, '#66bb6a');
@@ -820,29 +811,6 @@ function updateBall() {
       const feetY = p.y + p.h / 2;
       const legRect = { left: p.x - p.w / 2 - 2, right: p.x + p.w / 2 + 2, top: kneeY, bottom: feetY };
       if (circleRectOverlap(ball.x, ball.y, ball.radius, legRect)) {
-        // Shield power-up: absorb one hit
-        if (p.hasShield) {
-          p.hasShield = false;
-          ball.vx *= -0.4;
-          ball.vy = -3;
-          ball.dangerous = false;
-          ball.glowIntensity = 0;
-          // Blue shield break particles
-          for (let i = 0; i < 16; i++) {
-            const angle = Math.random() * Math.PI * 2;
-            const spd = 2 + Math.random() * 4;
-            particles.push({
-              x: p.x, y: p.y,
-              vx: Math.cos(angle) * spd,
-              vy: Math.sin(angle) * spd - 2,
-              life: 25 + Math.random() * 25,
-              maxLife: 50,
-              color: '#42a5f5',
-              radius: 2 + Math.random() * 4,
-            });
-          }
-          break;
-        }
         p.alive = false;
         spawnParticles(p.x, feetY, p.color);
         ball.vx *= 0.3;
@@ -926,7 +894,6 @@ function drawAbilityHUD() {
 
     const available = human.abilityAvailable[ab.id];
     const active = (ab.id === 'ironfist' && human.hasIronFist) ||
-                   (ab.id === 'shield' && human.hasShield) ||
                    (ab.id === 'speed' && human.speedBoostTimer > 0);
     const used = !available && !active;
 
@@ -1139,20 +1106,6 @@ function drawPlayer(p) {
   ctx.fill();
 
   // --- Power-up visual indicators ---
-  // Shield aura
-  if (p.hasShield) {
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.h * 0.65, 0, Math.PI * 2);
-    ctx.strokeStyle = 'rgba(66, 165, 245, 0.4)';
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    const shieldGlow = ctx.createRadialGradient(p.x, p.y, p.h * 0.3, p.x, p.y, p.h * 0.65);
-    shieldGlow.addColorStop(0, 'rgba(66, 165, 245, 0)');
-    shieldGlow.addColorStop(1, 'rgba(66, 165, 245, 0.12)');
-    ctx.fillStyle = shieldGlow;
-    ctx.fill();
-  }
-
   // Iron Fist glow on front hand
   if (p.hasIronFist) {
     const handX = p.x + p.facing * 18 + (p.hitAnim > 0 ? p.facing * 12 : 0);
@@ -1261,7 +1214,7 @@ function drawHUD() {
     if (gameMode === 'public') {
       ctx.fillText('P1: A/D Move, W Jump, Space Hit  |  P2: Arrows Move, Up Jump, Enter Hit', W / 2, H - 10);
     } else if (currentDifficulty === DIFFICULTIES.impossible) {
-      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Iron Fist  2: Shield  3: Speed', W / 2, H - 10);
+      ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit  |  1: Iron Fist  2: Speed', W / 2, H - 10);
     } else {
       ctx.fillText('A/D or Arrows: Move  |  W/Up: Jump  |  Space: Hit Ball', W / 2, H - 10);
     }
