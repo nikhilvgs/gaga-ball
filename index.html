@@ -174,6 +174,9 @@ const BALL_BOUNCE = 0.65;
 const BALL_MIN_SPEED = 0.2;
 const HIT_RANGE = 50;
 const HIT_COOLDOWN = 18;
+const STUN_BALL_RADIUS = 7;
+const STUN_DURATION = 120;      // 2 seconds at 60fps
+const STUN_RESPAWN_TIME = 480;  // ~8 seconds
 
 // --- Input ---
 const keys = {};
@@ -401,6 +404,8 @@ let p2HasInput = false; // tracks if P2 has pressed any key during countdown
 // --- Abilities (Impossible mode only) ---
 let frameCount = 0;
 let screenShake = 0;
+let stunBalls = [];
+let stunSpawnTimer = 0;
 // Ability definitions
 const ABILITIES = [
   { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: '3x hit power' },
@@ -430,6 +435,7 @@ function createPlayer(index, x, playerNum) {
     onGround: true,
     facing: index < 2 ? 1 : -1,
     hitCooldown: 0,
+    stunTimer: 0,
     canHitBall: true,
     // AI — tuned by difficulty
     aiTimer: Math.floor(Math.random() * 60),  // stagger AI thinking
@@ -505,6 +511,8 @@ function initGame() {
   ball.vx = 0;
   particles = [];
   extraBalls = [];
+  stunBalls = [];
+  stunSpawnTimer = 0;
   frameCount = 0;
   gameState = 'countdown';
   countdownTimer = 0;
@@ -546,6 +554,19 @@ function circleRectOverlap(cx, cy, cr, rect) {
 // --- Update ---
 function updatePlayer(p) {
   if (!p.alive) return;
+
+  // Stun handling — freeze player but keep gravity
+  if (p.stunTimer > 0) {
+    p.stunTimer--;
+    p.vx *= 0.9;
+    p.vy += GRAVITY;
+    p.y += p.vy;
+    if (p.y + p.h / 2 >= ARENA.floor) { p.y = ARENA.floor - p.h / 2; p.vy = 0; p.onGround = true; }
+    if (p.x - p.w / 2 < ARENA.left) { p.x = ARENA.left + p.w / 2; p.vx = 0; }
+    if (p.x + p.w / 2 > ARENA.right) { p.x = ARENA.right - p.w / 2; p.vx = 0; }
+    return;
+  }
+
   if (p.hitCooldown > 0) p.hitCooldown--;
   if (p.hitAnim > 0) p.hitAnim--;
 
@@ -969,6 +990,63 @@ function spawnAbilityParticles(x, y, color) {
   }
 }
 
+// --- Stun Ball ---
+function spawnStunBall() {
+  const margin = 60;
+  const x = ARENA.left + margin + Math.random() * (ARENA.right - ARENA.left - margin * 2);
+  stunBalls.push({
+    x: x,
+    y: ARENA.floor,
+    radius: STUN_BALL_RADIUS,
+    bobOffset: Math.random() * Math.PI * 2,
+  });
+}
+
+function updateStunBalls() {
+  // Respawn timer
+  if (stunBalls.length === 0) {
+    stunSpawnTimer++;
+    if (stunSpawnTimer >= STUN_RESPAWN_TIME) {
+      spawnStunBall();
+      stunSpawnTimer = 0;
+    }
+  }
+
+  // Collision with players
+  for (let i = stunBalls.length - 1; i >= 0; i--) {
+    const sb = stunBalls[i];
+    let collected = false;
+
+    for (const p of players) {
+      if (!p.alive || p.stunTimer > 0) continue;
+      const rect = playerRect(p);
+      if (circleRectOverlap(sb.x, sb.y - sb.radius, sb.radius, rect)) {
+        p.stunTimer = STUN_DURATION;
+        p.vx = 0;
+        if (!p.isHuman) p.aiMoveDir = 0;
+        // Yellow electric particles
+        for (let j = 0; j < 15; j++) {
+          const angle = Math.random() * Math.PI * 2;
+          const spd = 1 + Math.random() * 3;
+          particles.push({
+            x: sb.x, y: sb.y - sb.radius,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd - 2,
+            life: 20 + Math.random() * 15,
+            maxLife: 35,
+            color: j % 2 === 0 ? '#ffeb3b' : '#fff176',
+            radius: 2 + Math.random() * 3,
+          });
+        }
+        collected = true;
+        break;
+      }
+    }
+
+    if (collected) stunBalls.splice(i, 1);
+  }
+}
+
 function drawAbilityHUD() {
   if (currentDifficulty !== DIFFICULTIES.impossible && currentDifficulty !== DIFFICULTIES.insane) return;
   // Find the human player (P1)
@@ -1197,6 +1275,28 @@ function drawPlayer(p) {
   ctx.textAlign = 'center';
   ctx.fillStyle = p.color;
   ctx.fillText(p.name, p.x, headY - 8);
+
+  // Stun visual
+  if (p.stunTimer > 0) {
+    // Flashing yellow overlay
+    if (Math.floor(p.stunTimer / 4) % 2 === 0) {
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#ffeb3b';
+      ctx.beginPath();
+      ctx.roundRect(p.x - 12, p.y - p.h / 2, 24, p.h, 4);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    // Stars above head
+    for (let s = 0; s < 3; s++) {
+      const starX = p.x - 10 + s * 10;
+      const starY = headY - 14 + Math.sin(frameCount * 0.2 + s * 2) * 3;
+      ctx.font = '8px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = s % 2 === 0 ? '#ffeb3b' : '#fff176';
+      ctx.fillText('✦', starX, starY);
+    }
+  }
 }
 
 function drawBall() {
@@ -1269,6 +1369,57 @@ function drawBallObj(b) {
   ctx.fillStyle = 'rgba(255,255,255,0.4)';
   ctx.fill();
   ctx.globalAlpha = 1;
+}
+
+function drawStunBalls() {
+  for (const sb of stunBalls) {
+    const bobY = sb.y - sb.radius - 2 + Math.sin(frameCount * 0.08 + sb.bobOffset) * 3;
+
+    // Outer glow
+    const g = ctx.createRadialGradient(sb.x, bobY, sb.radius * 0.5, sb.x, bobY, sb.radius * 3);
+    g.addColorStop(0, 'rgba(255, 235, 59, 0.4)');
+    g.addColorStop(0.5, 'rgba(255, 255, 0, 0.15)');
+    g.addColorStop(1, 'rgba(255, 255, 0, 0)');
+    ctx.beginPath();
+    ctx.arc(sb.x, bobY, sb.radius * 3, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+
+    // Pulse ring
+    const pulseR = sb.radius + 2 + Math.sin(frameCount * 0.15 + sb.bobOffset) * 2;
+    ctx.beginPath();
+    ctx.arc(sb.x, bobY, pulseR, 0, Math.PI * 2);
+    ctx.strokeStyle = `rgba(255, 255, 0, ${0.3 + Math.sin(frameCount * 0.1) * 0.2})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Shadow
+    ctx.beginPath();
+    ctx.ellipse(sb.x, ARENA.floor, sb.radius * 0.7, 3, 0, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 235, 59, 0.15)';
+    ctx.fill();
+
+    // Main ball
+    ctx.beginPath();
+    ctx.arc(sb.x, bobY, sb.radius, 0, Math.PI * 2);
+    ctx.fillStyle = '#ffeb3b';
+    ctx.fill();
+    ctx.strokeStyle = '#f9a825';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Highlight
+    ctx.beginPath();
+    ctx.arc(sb.x - 2, bobY - 2, sb.radius * 0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+    ctx.fill();
+
+    // Lightning icon
+    ctx.font = 'bold 10px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#f57f17';
+    ctx.fillText('⚡', sb.x, bobY + 4);
+  }
 }
 
 function drawParticles() {
@@ -1746,6 +1897,7 @@ function gameLoop() {
       for (const p of players) updatePlayer(p);
       updateBall();
       updateExtraBalls();
+      updateStunBalls();
       updateParticles();
       checkGameOver();
 
@@ -1753,6 +1905,7 @@ function gameLoop() {
       for (const p of players) {
         if (!p.alive) { ctx.globalAlpha = 0.15; drawPlayer(p); ctx.globalAlpha = 1; }
       }
+      drawStunBalls();
       for (const p of players) {
         if (p.alive) drawPlayer(p);
       }
