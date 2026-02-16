@@ -601,14 +601,17 @@ function updateHuman(p) {
     }
     if (justPressed['Digit3'] && p.abilityAvailable.multiball) {
       p.abilityAvailable.multiball = false;
-      // Spawn 5 extra balls in a fan spread
+      // Spawn 5 extra balls in a fan spread — already dangerous
       for (let bi = 0; bi < 5; bi++) {
         const eb = createBall();
         eb.x = p.x + (bi - 2) * 25;
         eb.y = ARENA.top + 30;
         eb.vx = (bi - 2) * 3;
         eb.vy = 2 + Math.random() * 2;
-        eb.dangerous = false;
+        eb.dangerous = true;
+        eb.lastHitBy = p;
+        eb.bounced = true;
+        eb.glowIntensity = 1;
         eb.life = 600;
         extraBalls.push(eb);
       }
