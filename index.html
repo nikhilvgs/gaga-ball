@@ -616,7 +616,7 @@ function updatePlayer(p) {
 }
 
 function updateHuman(p) {
-  const speed = PLAYER_SPEED;
+  const speed = currentDifficulty === DIFFICULTIES.impossible ? PLAYER_SPEED * 1.3 : PLAYER_SPEED;
 
   // Ability activation
   const hasAbilities = currentDifficulty === DIFFICULTIES.impossible || currentDifficulty === DIFFICULTIES.insane || currentDifficulty === DIFFICULTIES.hard;
