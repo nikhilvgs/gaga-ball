@@ -1025,7 +1025,12 @@ function spawnAbilityParticles(x, y, color) {
 // --- Stun Ball ---
 function spawnStunBall() {
   const margin = 60;
-  const x = ARENA.left + margin + Math.random() * (ARENA.right - ARENA.left - margin * 2);
+  const minDist = 60;
+  let x, attempts = 0;
+  do {
+    x = ARENA.left + margin + Math.random() * (ARENA.right - ARENA.left - margin * 2);
+    attempts++;
+  } while (attempts < 50 && players.some(p => p.alive && Math.abs(p.x - x) < minDist));
   stunBalls.push({
     x: x,
     y: ARENA.floor,
