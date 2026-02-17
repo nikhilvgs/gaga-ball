@@ -1155,25 +1155,39 @@ function updateIronFist() {
 
     if (dist < 20 || st.timer > 80) {
       // Impact!
+      const EXPLOSION_RADIUS = 80;
+      const impactX = st.victim.x;
+      const impactY = st.victim.y;
       if (st.victim.alive) {
         st.victim.alive = false;
         spawnParticles(st.victim.x, st.victim.y + st.victim.h / 2, st.victim.color);
-        // Big explosion
-        for (let i = 0; i < 30; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const spd = 3 + Math.random() * 7;
-          particles.push({
-            x: st.victim.x, y: st.victim.y,
-            vx: Math.cos(angle) * spd,
-            vy: Math.sin(angle) * spd - 3,
-            life: 25 + Math.random() * 25,
-            maxLife: 50,
-            color: ['#ff9800', '#ff5722', '#ff3d00', '#ffeb3b'][i % 4],
-            radius: 3 + Math.random() * 5,
-          });
-        }
-        screenShake = 12;
       }
+      // Splash damage — kill nearby players (except activator)
+      for (const p of players) {
+        if (p === st.activator || p === st.victim || !p.alive) continue;
+        const sdx = p.x - impactX;
+        const sdy = (p.y + p.h / 2) - impactY;
+        const sDist = Math.sqrt(sdx * sdx + sdy * sdy);
+        if (sDist < EXPLOSION_RADIUS) {
+          p.alive = false;
+          spawnParticles(p.x, p.y + p.h / 2, p.color);
+        }
+      }
+      // Big explosion
+      for (let i = 0; i < 30; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const spd = 3 + Math.random() * 7;
+        particles.push({
+          x: impactX, y: impactY,
+          vx: Math.cos(angle) * spd,
+          vy: Math.sin(angle) * spd - 3,
+          life: 25 + Math.random() * 25,
+          maxLife: 50,
+          color: ['#ff9800', '#ff5722', '#ff3d00', '#ffeb3b'][i % 4],
+          radius: 3 + Math.random() * 5,
+        });
+      }
+      screenShake = 12;
       // Ball loses energy after impact
       ball.vx *= 0.2;
       ball.vy *= 0.2;
