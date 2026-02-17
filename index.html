@@ -410,6 +410,7 @@ let frameCount = 0;
 let screenShake = 0;
 let stunBalls = [];
 let stunSpawnTimer = 0;
+let ironFistState = null;
 // Ability definitions
 const ABILITIES = [
   { id: 'ironfist', label: 'Iron Fist', icon: '👊', color: '#ff9800', key: '1', desc: 'Instant KO' },
@@ -519,6 +520,7 @@ function initGame() {
   extraBalls = [];
   stunBalls = [];
   stunSpawnTimer = STUN_RESPAWN_TIME; // spawn first stun ball immediately
+  ironFistState = null;
   frameCount = 0;
   gameState = 'countdown';
   countdownTimer = 0;
@@ -645,30 +647,25 @@ function updateHuman(p) {
         }
       }
     }
-    // Iron Fist — Impossible only
-    if (currentDifficulty === DIFFICULTIES.impossible && justPressed['Digit1'] && p.abilityAvailable.ironfist) {
-      p.abilityAvailable.ironfist = false;
-      // Instantly eliminate a random alive player (not you)
+    // Iron Fist — Impossible only: hit ball up, spike it down onto a victim
+    if (currentDifficulty === DIFFICULTIES.impossible && justPressed['Digit1'] && p.abilityAvailable.ironfist && !ironFistState) {
       const targets = players.filter(o => o !== p && o.alive);
       if (targets.length > 0) {
+        p.abilityAvailable.ironfist = false;
         const victim = targets[Math.floor(Math.random() * targets.length)];
-        victim.alive = false;
-        spawnParticles(victim.x, victim.y + victim.h / 2, victim.color);
-        // Big orange burst on victim
-        for (let i = 0; i < 18; i++) {
-          const angle = Math.random() * Math.PI * 2;
-          const spd = 3 + Math.random() * 5;
-          particles.push({
-            x: victim.x, y: victim.y,
-            vx: Math.cos(angle) * spd,
-            vy: Math.sin(angle) * spd - 2,
-            life: 20 + Math.random() * 20,
-            maxLife: 40,
-            color: i % 2 === 0 ? '#ff9800' : '#ff5722',
-            radius: 3 + Math.random() * 4,
-          });
-        }
-        screenShake = 8;
+        // Move ball to activator and punch it up
+        ball.x = p.x;
+        ball.y = p.y - 10;
+        ball.vy = -15;
+        ball.vx = 0;
+        ball.dangerous = false;
+        ball.glowIntensity = 0.5;
+        // Play hit animation, face upward
+        p.hitAnim = 10;
+        // Store state
+        ironFistState = { victim, phase: 'up', timer: 0, activator: p };
+        screenShake = 3;
+        spawnAbilityParticles(p.x, p.y, '#ff9800');
       }
     }
     // Multiball — Insane + Impossible
@@ -890,7 +887,8 @@ function updateBall() {
   }
 
   // Player collision (elimination — only hits at knees or below count)
-  if (ball.dangerous) {
+  // Skip normal elimination during Iron Fist animation (handled by updateIronFist)
+  if (ball.dangerous && !ironFistState) {
     for (const p of players) {
       if (!p.alive) continue;
       if (ball.lastHitBy === p && !ball.bounced) continue;
@@ -1084,6 +1082,105 @@ function updateStunBalls() {
     }
 
     if (collected) stunBalls.splice(i, 1);
+  }
+}
+
+function updateIronFist() {
+  if (!ironFistState || !ball) return;
+  const st = ironFistState;
+  st.timer++;
+
+  if (st.phase === 'up') {
+    // Ball rises via normal gravity (updateBall handles physics)
+    // After a few frames, make activator jump to follow
+    if (st.timer === 5) {
+      st.activator.vy = JUMP_VEL;
+      st.activator.onGround = false;
+    }
+    // After 20 frames, switch to spike phase
+    if (st.timer >= 20) {
+      st.phase = 'spike';
+    }
+  } else if (st.phase === 'spike') {
+    // Activator spikes the ball down at victim's knees
+    const targetX = st.victim.x;
+    const targetY = st.victim.y + st.victim.h * 0.15; // knee level
+    const dx = targetX - ball.x;
+    const dy = targetY - ball.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const speed = 20;
+    ball.vx = (dx / dist) * speed;
+    ball.vy = (dy / dist) * speed;
+    ball.dangerous = true;
+    ball.lastHitBy = st.activator;
+    ball.bounced = true;
+    ball.glowIntensity = 1;
+    // Play spike animation
+    st.activator.hitAnim = 10;
+    st.activator.facing = st.victim.x > st.activator.x ? 1 : -1;
+    screenShake = 4;
+    // Orange trail particles
+    for (let i = 0; i < 5; i++) {
+      particles.push({
+        x: ball.x, y: ball.y,
+        vx: (Math.random() - 0.5) * 3,
+        vy: (Math.random() - 0.5) * 3,
+        life: 10 + Math.random() * 10,
+        maxLife: 20,
+        color: i % 2 === 0 ? '#ff9800' : '#ff5722',
+        radius: 2 + Math.random() * 2,
+      });
+    }
+    st.phase = 'smash';
+  } else if (st.phase === 'smash') {
+    // Ball is flying toward victim — spawn trail particles
+    if (st.timer % 2 === 0) {
+      particles.push({
+        x: ball.x, y: ball.y,
+        vx: (Math.random() - 0.5) * 2,
+        vy: -1 - Math.random(),
+        life: 8 + Math.random() * 8,
+        maxLife: 16,
+        color: '#ff9800',
+        radius: 1.5 + Math.random() * 2,
+      });
+    }
+
+    // Check if ball reached victim
+    const kneeX = st.victim.x;
+    const kneeY = st.victim.y + st.victim.h * 0.15;
+    const dx = ball.x - kneeX;
+    const dy = ball.y - kneeY;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    if (dist < 20 || st.timer > 80) {
+      // Impact!
+      if (st.victim.alive) {
+        st.victim.alive = false;
+        spawnParticles(st.victim.x, st.victim.y + st.victim.h / 2, st.victim.color);
+        // Big explosion
+        for (let i = 0; i < 30; i++) {
+          const angle = Math.random() * Math.PI * 2;
+          const spd = 3 + Math.random() * 7;
+          particles.push({
+            x: st.victim.x, y: st.victim.y,
+            vx: Math.cos(angle) * spd,
+            vy: Math.sin(angle) * spd - 3,
+            life: 25 + Math.random() * 25,
+            maxLife: 50,
+            color: ['#ff9800', '#ff5722', '#ff3d00', '#ffeb3b'][i % 4],
+            radius: 3 + Math.random() * 5,
+          });
+        }
+        screenShake = 12;
+      }
+      // Ball loses energy after impact
+      ball.vx *= 0.2;
+      ball.vy *= 0.2;
+      ball.dangerous = false;
+      ball.glowIntensity = 0;
+      ironFistState = null;
+    }
   }
 }
 
@@ -1943,6 +2040,7 @@ function gameLoop() {
       frameCount++;
       for (const p of players) updatePlayer(p);
       updateBall();
+      updateIronFist();
       updateExtraBalls();
       updateStunBalls();
       updateParticles();
